@@ -1,5 +1,6 @@
 package com.example.helloworld;
 
+import com.example.helloworld.exception.*;
 import com.example.helloworld.model.*;
 import com.example.helloworld.store.DepartmentKey;
 import com.example.helloworld.store.EmployeeKey;
@@ -12,7 +13,7 @@ import java.util.Map;
 
 public class App {
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
 
         // ════════════════════════════════════════════════════════════════════
         // PART 1 — Custom object as HashMap key (standalone demo)
@@ -110,6 +111,88 @@ public class App {
         store.remove(5);
         System.out.println("Store size after removal : " + store.count());
         System.out.println("Find Eve by id           : " + store.findById(5));
+
+        // ════════════════════════════════════════════════════════════════════
+        // PART 3 — Custom exception demo
+        // ════════════════════════════════════════════════════════════════════
+
+        EmployeeStore exStore = new InMemoryEmployeeStore();
+        Employee emp = new PermanentEmployee(1, "Alice Kumar", "alice@example.com", 10,
+                "Engineer", 85_000, EmployeeStatus.ACTIVE, LocalDate.of(2020, 6, 1), true);
+        exStore.add(emp);
+
+        // ── DuplicateEmployeeException ────────────────────────────────────
+        printSection("DuplicateEmployeeException — add same id twice");
+        try {
+            Employee duplicate = new PermanentEmployee(1, "Alice Copy", "alice.copy@example.com",
+                    10, "Engineer", 80_000, EmployeeStatus.ACTIVE, LocalDate.of(2021, 1, 1), true);
+            exStore.add(duplicate);
+        } catch (DuplicateEmployeeException e) {
+            System.out.println("Caught : " + e.getClass().getSimpleName());
+            System.out.println("Message: " + e.getMessage());
+            System.out.println("Duplicate id: " + e.getDuplicateId());
+        }
+
+        // ── DuplicateEmailException ───────────────────────────────────────
+        printSection("DuplicateEmailException — add different id but same email");
+        try {
+            Employee sameEmail = new PermanentEmployee(2, "Alice Twin", "alice@example.com",
+                    10, "Engineer", 80_000, EmployeeStatus.ACTIVE, LocalDate.of(2021, 1, 1), true);
+            exStore.add(sameEmail);
+        } catch (DuplicateEmailException e) {
+            System.out.println("Caught : " + e.getClass().getSimpleName());
+            System.out.println("Message: " + e.getMessage());
+            System.out.println("Duplicate email: " + e.getDuplicateEmail());
+        }
+
+        // ── EmployeeNotFoundException (remove) ────────────────────────────
+        printSection("EmployeeNotFoundException — remove non-existent id");
+        try {
+            exStore.remove(999);
+        } catch (EmployeeNotFoundException e) {
+            System.out.println("Caught : " + e.getClass().getSimpleName());
+            System.out.println("Message: " + e.getMessage());
+            System.out.println("Search key: " + e.getSearchKey());
+        }
+
+        // ── EmployeeNotFoundException (update) ────────────────────────────
+        printSection("EmployeeNotFoundException — update non-existent employee");
+        try {
+            Employee ghost = new PermanentEmployee(404, "Ghost User", "ghost@example.com",
+                    10, "Engineer", 50_000, EmployeeStatus.INACTIVE, LocalDate.of(2020, 1, 1), false);
+            exStore.update(ghost);
+        } catch (EmployeeNotFoundException e) {
+            System.out.println("Caught : " + e.getClass().getSimpleName());
+            System.out.println("Message: " + e.getMessage());
+        }
+
+        // ── InvalidEmployeeDataException ──────────────────────────────────
+        printSection("InvalidEmployeeDataException — negative min salary in range query");
+        try {
+            exStore.findBySalaryRange(-1000, 90_000);
+        } catch (InvalidEmployeeDataException e) {
+            System.out.println("Caught : " + e.getClass().getSimpleName());
+            System.out.println("Message: " + e.getMessage());
+            System.out.println("Field  : " + e.getFieldName());
+            System.out.println("Value  : " + e.getRejectedValue());
+        }
+
+        printSection("InvalidEmployeeDataException — min > max in range query");
+        try {
+            exStore.findBySalaryRange(90_000, 50_000);
+        } catch (InvalidEmployeeDataException e) {
+            System.out.println("Caught : " + e.getClass().getSimpleName());
+            System.out.println("Message: " + e.getMessage());
+        }
+
+        // ── Catching via base EmployeeException ───────────────────────────
+        printSection("Catching all via base EmployeeException");
+        try {
+            exStore.remove(777);
+        } catch (EmployeeException e) {
+            System.out.println("Caught as base type : " + e.getClass().getSimpleName());
+            System.out.println("Message             : " + e.getMessage());
+        }
     }
 
     private static void printSection(String title) {

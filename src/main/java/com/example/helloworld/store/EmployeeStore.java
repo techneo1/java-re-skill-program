@@ -1,5 +1,6 @@
 package com.example.helloworld.store;
 
+import com.example.helloworld.exception.*;
 import com.example.helloworld.model.Employee;
 import com.example.helloworld.model.EmployeeStatus;
 
@@ -14,14 +15,14 @@ public interface EmployeeStore {
 
     // ── CRUD ─────────────────────────────────────────────────────────────────
 
-    /** Add a new employee. Throws if the id already exists. */
-    void add(Employee employee);
+    /** Add a new employee. Throws if the id or email already exists. */
+    void add(Employee employee) throws DuplicateEmployeeException, DuplicateEmailException;
 
-    /** Replace an existing employee by id. Throws if not found. */
-    void update(Employee employee);
+    /** Replace an existing employee by id. Throws if not found or email is taken. */
+    void update(Employee employee) throws EmployeeNotFoundException, DuplicateEmailException;
 
     /** Remove an employee by id. Throws if not found. */
-    void remove(int id);
+    void remove(int id) throws EmployeeNotFoundException;
 
     /** Find an employee by id. Returns empty if not found. */
     Optional<Employee> findById(int id);
@@ -44,7 +45,7 @@ public interface EmployeeStore {
     Optional<Employee> findByEmail(String email);
 
     /** Find all employees with salary in the range [min, max] inclusive. */
-    List<Employee> findBySalaryRange(double min, double max);
+    List<Employee> findBySalaryRange(double min, double max) throws InvalidEmployeeDataException;
 
     // ── Aggregations ──────────────────────────────────────────────────────────
 
@@ -57,4 +58,3 @@ public interface EmployeeStore {
     /** Average salary across all employees. Returns 0.0 if the store is empty. */
     double averageSalary();
 }
-

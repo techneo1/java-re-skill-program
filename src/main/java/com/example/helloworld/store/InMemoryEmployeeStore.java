@@ -1,5 +1,6 @@
 package com.example.helloworld.store;
 
+import com.example.helloworld.exception.*;
 import com.example.helloworld.model.Employee;
 import com.example.helloworld.model.EmployeeStatus;
 
@@ -12,6 +13,7 @@ import java.util.stream.Collectors;
  * Collections used:
  *  - HashMap<EmployeeKey, Employee>       : custom object key — O(1) lookup by id+email
  *  - HashMap<Integer, EmployeeKey>        : id → EmployeeKey reverse index for id-only lookups
+ *  - HashMap<String, Integer>             : email uniqueness index — O(1) email lookups
  *  - HashMap<DepartmentKey, Set<Integer>> : record key — O(1) dept queries
  */
 public class InMemoryEmployeeStore implements EmployeeStore {
@@ -21,6 +23,9 @@ public class InMemoryEmployeeStore implements EmployeeStore {
 
     // Reverse index: id → EmployeeKey (needed to resolve id-only lookups)
     private final Map<Integer, EmployeeKey> idIndex = new HashMap<>();
+
+    // Email uniqueness index: normalised email → id
+    private final Map<String, Integer> emailIndex = new HashMap<>();
 
     // Department index: DepartmentKey (record) → Set of employee ids
     private final Map<DepartmentKey, Set<Integer>> departmentIndex = new HashMap<>();
@@ -40,41 +45,42 @@ public class InMemoryEmployeeStore implements EmployeeStore {
     // ── CRUD ─────────────────────────────────────────────────────────────────
 
     @Override
-    public void add(Employee employee) {
+    public void add(Employee employee) throws DuplicateEmployeeException, DuplicateEmailException {
         Objects.requireNonNull(employee, "employee must not be null");
         if (idIndex.containsKey(employee.getId()))
-            throw new IllegalArgumentException(
-                    "Employee with id " + employee.getId() + " already exists");
+            throw new DuplicateEmployeeException(employee.getId());
+
+        String normEmail = employee.getEmail().strip().toLowerCase();
+        if (emailIndex.containsKey(normEmail))
+            throw new DuplicateEmailException(employee.getEmail());
 
         EmployeeKey key = keyOf(employee);
-        if (store.containsKey(key))
-            throw new IllegalArgumentException(
-                    "Employee with email '" + employee.getEmail() + "' already exists");
-
         store.put(key, employee);
         idIndex.put(employee.getId(), key);
+        emailIndex.put(normEmail, employee.getId());
         departmentIndex
                 .computeIfAbsent(deptKeyOf(employee), k -> new HashSet<>())
                 .add(employee.getId());
     }
 
     @Override
-    public void update(Employee employee) {
+    public void update(Employee employee) throws EmployeeNotFoundException, DuplicateEmailException {
         Objects.requireNonNull(employee, "employee must not be null");
         EmployeeKey oldKey = idIndex.get(employee.getId());
         if (oldKey == null)
-            throw new NoSuchElementException(
-                    "No employee found with id " + employee.getId());
+            throw new EmployeeNotFoundException(employee.getId());
 
         Employee existing = store.get(oldKey);
-
         EmployeeKey newKey = keyOf(employee);
 
-        // If email changed — remove old key, check new key is not taken, insert new key
-        if (!oldKey.equals(newKey)) {
-            if (store.containsKey(newKey))
-                throw new IllegalArgumentException(
-                        "Email '" + employee.getEmail() + "' is already taken");
+        // If email changed — check uniqueness, update emailIndex
+        String oldNormEmail = existing.getEmail().strip().toLowerCase();
+        String newNormEmail = employee.getEmail().strip().toLowerCase();
+        if (!oldNormEmail.equals(newNormEmail)) {
+            if (emailIndex.containsKey(newNormEmail))
+                throw new DuplicateEmailException(employee.getEmail());
+            emailIndex.remove(oldNormEmail);
+            emailIndex.put(newNormEmail, employee.getId());
             store.remove(oldKey);
             idIndex.put(employee.getId(), newKey);
         }
@@ -94,13 +100,14 @@ public class InMemoryEmployeeStore implements EmployeeStore {
     }
 
     @Override
-    public void remove(int id) {
+    public void remove(int id) throws EmployeeNotFoundException {
         EmployeeKey key = idIndex.remove(id);
         if (key == null)
-            throw new NoSuchElementException("No employee found with id " + id);
+            throw new EmployeeNotFoundException(id);
 
         Employee existing = store.remove(key);
         if (existing != null) {
+            emailIndex.remove(existing.getEmail().strip().toLowerCase());
             Set<Integer> deptSet = departmentIndex.get(deptKeyOf(existing));
             if (deptSet != null) deptSet.remove(id);
         }
@@ -152,17 +159,16 @@ public class InMemoryEmployeeStore implements EmployeeStore {
     @Override
     public Optional<Employee> findByEmail(String email) {
         Objects.requireNonNull(email, "email must not be null");
-        // Reconstruct a key with a dummy id=1; email-only lookup isn't possible with
-        // composite key — scan via stream (email index could be added if needed)
-        return store.values().stream()
-                    .filter(e -> e.getEmail().equalsIgnoreCase(email.strip()))
-                    .findFirst();
+        Integer id = emailIndex.get(email.strip().toLowerCase());
+        if (id == null) return Optional.empty();
+        EmployeeKey key = idIndex.get(id);
+        return Optional.ofNullable(key != null ? store.get(key) : null);
     }
 
     @Override
-    public List<Employee> findBySalaryRange(double min, double max) {
-        if (min < 0)   throw new IllegalArgumentException("min salary must not be negative");
-        if (min > max) throw new IllegalArgumentException("min must be <= max");
+    public List<Employee> findBySalaryRange(double min, double max) throws InvalidEmployeeDataException {
+        if (min < 0)   throw new InvalidEmployeeDataException("min", min, "salary must not be negative");
+        if (min > max) throw new InvalidEmployeeDataException("min/max", min + "/" + max, "min must be <= max");
         return store.values().stream()
                     .filter(e -> e.getSalary() >= min && e.getSalary() <= max)
                     .collect(Collectors.toUnmodifiableList());
