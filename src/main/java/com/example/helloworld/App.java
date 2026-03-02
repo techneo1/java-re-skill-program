@@ -1,75 +1,115 @@
 package com.example.helloworld;
 
 import com.example.helloworld.model.*;
+import com.example.helloworld.store.DepartmentKey;
+import com.example.helloworld.store.EmployeeKey;
 import com.example.helloworld.store.EmployeeStore;
 import com.example.helloworld.store.InMemoryEmployeeStore;
 
 import java.time.LocalDate;
+import java.util.HashMap;
+import java.util.Map;
 
 public class App {
 
     public static void main(String[] args) {
 
+        // ════════════════════════════════════════════════════════════════════
+        // PART 1 — Custom object as HashMap key (standalone demo)
+        // ════════════════════════════════════════════════════════════════════
+
+        // ── EmployeeKey : manual class key (equals + hashCode hand-written) ─
+        printSection("EmployeeKey — custom class as HashMap key");
+
+        Map<EmployeeKey, String> empMap = new HashMap<>();
+        EmployeeKey k1 = new EmployeeKey(1, "alice@example.com");
+        EmployeeKey k2 = new EmployeeKey(2, "bob@example.com");
+        EmployeeKey k3 = new EmployeeKey(1, "alice@example.com"); // same as k1
+
+        empMap.put(k1, "Alice Kumar");
+        empMap.put(k2, "Bob Singh");
+
+        System.out.println("k1 hashCode : " + k1.hashCode());
+        System.out.println("k3 hashCode : " + k3.hashCode() + "  ← same as k1 (equal keys must have equal hashes)");
+        System.out.println("k1.equals(k3): " + k1.equals(k3) + "  ← logically equal");
+        System.out.println("k1 == k3    : " + (k1 == k3)     + "  ← different references");
+        System.out.println("Lookup with k3 (new object, same data): " + empMap.get(k3)); // must find "Alice Kumar"
+        System.out.println("Map size (no duplicates): " + empMap.size());
+
+        // Demonstrate what happens with a DIFFERENT email for the same id — not equal
+        EmployeeKey k4 = new EmployeeKey(1, "alice.new@example.com");
+        System.out.println("k1.equals(k4) same id, diff email: " + k1.equals(k4)); // false
+
+        // ── DepartmentKey : Record key (equals + hashCode auto-generated) ───
+        printSection("DepartmentKey — Record as HashMap key");
+
+        Map<DepartmentKey, String> deptMap = new HashMap<>();
+        DepartmentKey dk1 = new DepartmentKey(10, "Engineering");
+        DepartmentKey dk2 = new DepartmentKey(20, "Design");
+        DepartmentKey dk3 = new DepartmentKey(10, "Engineering"); // same as dk1
+
+        deptMap.put(dk1, "Floor 3, Block A");
+        deptMap.put(dk2, "Floor 1, Block B");
+
+        System.out.println("dk1 hashCode : " + dk1.hashCode());
+        System.out.println("dk3 hashCode : " + dk3.hashCode() + "  ← same as dk1");
+        System.out.println("dk1.equals(dk3): " + dk1.equals(dk3));
+        System.out.println("Lookup with dk3 (new record, same data): " + deptMap.get(dk3)); // must find location
+        System.out.println("Map size (no duplicates): " + deptMap.size());
+
+        // Records normalise the name to lowercase in compact constructor
+        DepartmentKey dk4 = new DepartmentKey(10, "ENGINEERING");  // uppercase — normalised to same
+        System.out.println("dk1.equals(dk4) case-insensitive match: " + dk1.equals(dk4));
+
+        // ════════════════════════════════════════════════════════════════════
+        // PART 2 — InMemoryEmployeeStore (backed by EmployeeKey + DepartmentKey)
+        // ════════════════════════════════════════════════════════════════════
+
         EmployeeStore store = new InMemoryEmployeeStore();
 
-        // ── Seed data ────────────────────────────────────────────────────────
-        Employee alice = new PermanentEmployee(1, "Alice Kumar",   "alice@example.com",  10, "Engineer",       85_000, EmployeeStatus.ACTIVE,   LocalDate.of(2020, 6, 1),  true);
-        Employee bob   = new PermanentEmployee(2, "Bob Singh",     "bob@example.com",    10, "Engineer",       90_000, EmployeeStatus.ACTIVE,   LocalDate.of(2019, 3, 15), true);
-        Employee carol = new ContractEmployee (3, "Carol Menon",   "carol@example.com",  20, "Designer",       60_000, EmployeeStatus.ACTIVE,   LocalDate.of(2023, 1, 1),  LocalDate.of(2025, 12, 31));
-        Employee dave  = new PermanentEmployee(4, "Dave Patel",    "dave@example.com",   20, "Manager",       110_000, EmployeeStatus.ACTIVE,   LocalDate.of(2017, 8, 20), true);
-        Employee eve   = new ContractEmployee (5, "Eve Sharma",    "eve@example.com",    30, "QA Analyst",     55_000, EmployeeStatus.INACTIVE, LocalDate.of(2022, 5, 10), LocalDate.of(2024, 5, 9));
+        Employee alice = new PermanentEmployee(1, "Alice Kumar", "alice@example.com", 10, "Engineer",    85_000, EmployeeStatus.ACTIVE,   LocalDate.of(2020, 6,  1),  true);
+        Employee bob   = new PermanentEmployee(2, "Bob Singh",   "bob@example.com",   10, "Engineer",    90_000, EmployeeStatus.ACTIVE,   LocalDate.of(2019, 3, 15),  true);
+        Employee carol = new ContractEmployee (3, "Carol Menon", "carol@example.com", 20, "Designer",    60_000, EmployeeStatus.ACTIVE,   LocalDate.of(2023, 1,  1),  LocalDate.of(2025, 12, 31));
+        Employee dave  = new PermanentEmployee(4, "Dave Patel",  "dave@example.com",  20, "Manager",    110_000, EmployeeStatus.ACTIVE,   LocalDate.of(2017, 8, 20),  true);
+        Employee eve   = new ContractEmployee (5, "Eve Sharma",  "eve@example.com",   30, "QA Analyst",  55_000, EmployeeStatus.INACTIVE, LocalDate.of(2022, 5, 10),  LocalDate.of(2024, 5, 9));
 
-        store.add(alice);
-        store.add(bob);
-        store.add(carol);
-        store.add(dave);
-        store.add(eve);
+        store.add(alice); store.add(bob); store.add(carol); store.add(dave); store.add(eve);
 
-        // ── Find all ─────────────────────────────────────────────────────────
         printSection("All Employees (" + store.count() + ")");
         store.findAll().forEach(System.out::println);
 
-        // ── Find by id ───────────────────────────────────────────────────────
         printSection("Find by id = 3");
         store.findById(3).ifPresent(System.out::println);
 
-        // ── Find by email ────────────────────────────────────────────────────
         printSection("Find by email = dave@example.com");
         store.findByEmail("dave@example.com").ifPresent(System.out::println);
 
-        // ── Find by department ───────────────────────────────────────────────
         printSection("Employees in Department 10");
         store.findByDepartment(10).forEach(System.out::println);
 
-        // ── Find by status ───────────────────────────────────────────────────
         printSection("INACTIVE Employees");
         store.findByStatus(EmployeeStatus.INACTIVE).forEach(System.out::println);
 
-        // ── Find by role ─────────────────────────────────────────────────────
         printSection("Employees with role containing 'engineer'");
         store.findByRole("engineer").forEach(System.out::println);
 
-        // ── Find by salary range ─────────────────────────────────────────────
-        printSection("Employees with salary between 60,000 and 95,000");
+        printSection("Salary range 60,000 – 95,000");
         store.findBySalaryRange(60_000, 95_000).forEach(System.out::println);
 
-        // ── Aggregations ─────────────────────────────────────────────────────
         printSection("Aggregations");
-        System.out.printf("  Total employees : %d%n",     store.count());
-        System.out.printf("  Total salary    : %.2f%n",   store.totalSalary());
-        System.out.printf("  Average salary  : %.2f%n",   store.averageSalary());
+        System.out.printf("  Total employees : %d%n",   store.count());
+        System.out.printf("  Total salary    : %.2f%n", store.totalSalary());
+        System.out.printf("  Average salary  : %.2f%n", store.averageSalary());
 
-        // ── Update ───────────────────────────────────────────────────────────
-        printSection("Update Alice's salary to 95,000 and promote to Senior Engineer");
+        printSection("Update Alice's salary to 95,000");
         alice.setSalary(95_000);
         store.update(alice);
         store.findById(1).ifPresent(System.out::println);
 
-        // ── Remove ───────────────────────────────────────────────────────────
         printSection("Remove Eve (id=5)");
         store.remove(5);
-        System.out.println("Store size after removal: " + store.count());
-        System.out.println("Find Eve by id: " + store.findById(5));
+        System.out.println("Store size after removal : " + store.count());
+        System.out.println("Find Eve by id           : " + store.findById(5));
     }
 
     private static void printSection(String title) {

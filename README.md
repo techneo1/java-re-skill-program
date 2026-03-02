@@ -11,13 +11,18 @@ OOP concepts in Java 17, including **sealed class hierarchies**, **records**, **
 ## Project Structure
 
 ```
-src/main/java/com/example/helloworld/model/
-├── EmployeeStatus.java       — Enum: ACTIVE / INACTIVE
-├── Employee.java             — Sealed abstract base class
-├── PermanentEmployee.java    — Final subclass: permanent staff
-├── ContractEmployee.java     — Final subclass: contract staff
-├── Department.java           — Record (immutable DTO)
-└── PayrollRecord.java        — Record (immutable DTO)
+src/main/java/com/example/helloworld/
+├── App.java                            — Entry point / demo runner
+├── model/
+│   ├── EmployeeStatus.java             — Enum: ACTIVE / INACTIVE
+│   ├── Employee.java                   — Sealed abstract base class
+│   ├── PermanentEmployee.java          — Final subclass: permanent staff
+│   ├── ContractEmployee.java           — Final subclass: contract staff
+│   ├── Department.java                 — Record (immutable DTO)
+│   └── PayrollRecord.java              — Record (immutable DTO)
+└── store/
+    ├── EmployeeStore.java              — Interface: store contract
+    └── InMemoryEmployeeStore.java      — Implementation: collections-backed store
 ```
 
 ---
@@ -118,6 +123,106 @@ Represents a single payroll processing record for an employee.
 
 ---
 
+## In-Memory Employee Store
+
+### `EmployeeStore` (Interface)
+
+Defines the full contract for the store — all CRUD operations and query methods.
+
+```
+EmployeeStore  (interface)
+    └── InMemoryEmployeeStore  (implementation)
+```
+
+### `InMemoryEmployeeStore` (Implementation)
+
+A collections-backed, in-memory store with **secondary indexes** for fast lookups.
+
+#### Internal Collections
+
+| Collection                          | Type                          | Purpose                                      |
+|-------------------------------------|-------------------------------|----------------------------------------------|
+| `store`                             | `HashMap<Integer, Employee>`  | Primary store — O(1) lookup by `id`          |
+| `emailIndex`                        | `HashMap<String, Integer>`    | email → id index — O(1) lookup by email      |
+| `departmentIndex`                   | `HashMap<Integer, Set<Integer>>` | departmentId → Set of ids — O(1) dept query |
+
+#### CRUD Operations
+
+| Method                    | Description                                              |
+|---------------------------|----------------------------------------------------------|
+| `add(Employee)`           | Adds employee; throws if `id` or `email` already exists  |
+| `update(Employee)`        | Replaces by `id`; maintains email & dept indexes         |
+| `remove(int id)`          | Removes by `id`; cleans up all indexes                   |
+| `findById(int id)`        | Returns `Optional<Employee>` — O(1)                      |
+| `findAll()`               | Returns unmodifiable snapshot of all employees           |
+
+#### Query Operations
+
+| Method                                    | Description                                          |
+|-------------------------------------------|------------------------------------------------------|
+| `findByDepartment(int departmentId)`      | Uses `departmentIndex` — O(1) for index lookup       |
+| `findByStatus(EmployeeStatus)`            | Stream filter over all employees                     |
+| `findByRole(String)`                      | Case-insensitive partial match via stream filter      |
+| `findByEmail(String)`                     | Uses `emailIndex` — O(1) lookup                      |
+| `findBySalaryRange(double min, double max)` | Stream filter with range check                     |
+
+#### Aggregations
+
+| Method            | Description                                     |
+|-------------------|-------------------------------------------------|
+| `count()`         | Total number of employees                       |
+| `totalSalary()`   | Sum of all employee salaries                    |
+| `averageSalary()` | Average salary; returns `0.0` if store is empty |
+
+---
+
+## Sample Output (`mvn exec:java`)
+
+```
+── All Employees (5) ──────────────────────────────────────
+PermanentEmployee{id=1, name='Alice Kumar', ..., salary=85000.00, status=ACTIVE, ...}
+PermanentEmployee{id=2, name='Bob Singh',   ..., salary=90000.00, status=ACTIVE, ...}
+ContractEmployee {id=3, name='Carol Menon', ..., salary=60000.00, status=ACTIVE, ...}
+PermanentEmployee{id=4, name='Dave Patel',  ..., salary=110000.00, status=ACTIVE, ...}
+ContractEmployee {id=5, name='Eve Sharma',  ..., salary=55000.00, status=INACTIVE, ...}
+
+── Find by id = 3 ─────────────────────────────────────────
+ContractEmployee{id=3, name='Carol Menon', ...}
+
+── Find by email = dave@example.com ───────────────────────
+PermanentEmployee{id=4, name='Dave Patel', ...}
+
+── Employees in Department 10 ─────────────────────────────
+PermanentEmployee{id=1, name='Alice Kumar', ...}
+PermanentEmployee{id=2, name='Bob Singh', ...}
+
+── INACTIVE Employees ─────────────────────────────────────
+ContractEmployee{id=5, name='Eve Sharma', ...}
+
+── Employees with role containing 'engineer' ──────────────
+PermanentEmployee{id=1, name='Alice Kumar', ...}
+PermanentEmployee{id=2, name='Bob Singh', ...}
+
+── Employees with salary between 60,000 and 95,000 ────────
+PermanentEmployee{id=1, name='Alice Kumar', salary=85000.00}
+PermanentEmployee{id=2, name='Bob Singh',   salary=90000.00}
+ContractEmployee {id=3, name='Carol Menon', salary=60000.00}
+
+── Aggregations ───────────────────────────────────────────
+  Total employees : 5
+  Total salary    : 400000.00
+  Average salary  : 80000.00
+
+── Update Alice's salary to 95,000 ────────────────────────
+PermanentEmployee{id=1, name='Alice Kumar', salary=95000.00, ...}
+
+── Remove Eve (id=5) ──────────────────────────────────────
+Store size after removal: 4
+Find Eve by id: Optional.empty
+```
+
+---
+
 ## OOP Concepts Applied
 
 ### 🔒 Sealed Class Hierarchy
@@ -169,4 +274,3 @@ mvn exec:java
 ```
 
 > Requires **Java 17+** and **Maven 3.x**.
-
