@@ -1,34 +1,21 @@
-package com.example.helloworld.store;
+package com.example.helloworld.repository.inmemory;
 
+import com.example.helloworld.domain.Employee;
+import com.example.helloworld.domain.EmployeeStatus;
 import com.example.helloworld.exception.*;
-import com.example.helloworld.model.Employee;
-import com.example.helloworld.model.EmployeeStatus;
+import com.example.helloworld.repository.DepartmentKey;
+import com.example.helloworld.repository.EmployeeKey;
+import com.example.helloworld.repository.EmployeeRepository;
 
 import java.util.*;
 import java.util.stream.Collectors;
 
-/**
- * Thread-unsafe in-memory implementation of {@link EmployeeStore}.
- *
- * Collections used:
- *  - HashMap<EmployeeKey, Employee>       : custom object key — O(1) lookup by id+email
- *  - HashMap<Integer, EmployeeKey>        : id → EmployeeKey reverse index for id-only lookups
- *  - HashMap<String, Integer>             : email uniqueness index — O(1) email lookups
- *  - HashMap<DepartmentKey, Set<Integer>> : record key — O(1) dept queries
- */
-public class InMemoryEmployeeStore implements EmployeeStore {
+public class InMemoryEmployeeRepository implements EmployeeRepository {
 
-    // Primary store: composite EmployeeKey → Employee
-    private final Map<EmployeeKey, Employee> store = new HashMap<>();
-
-    // Reverse index: id → EmployeeKey (needed to resolve id-only lookups)
-    private final Map<Integer, EmployeeKey> idIndex = new HashMap<>();
-
-    // Email uniqueness index: normalised email → id
-    private final Map<String, Integer> emailIndex = new HashMap<>();
-
-    // Department index: DepartmentKey (record) → Set of employee ids
-    private final Map<DepartmentKey, Set<Integer>> departmentIndex = new HashMap<>();
+    private final Map<EmployeeKey, Employee>        store           = new HashMap<>();
+    private final Map<Integer, EmployeeKey>         idIndex         = new HashMap<>();
+    private final Map<String, Integer>              emailIndex      = new HashMap<>();
+    private final Map<DepartmentKey, Set<Integer>>  departmentIndex = new HashMap<>();
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
@@ -37,12 +24,10 @@ public class InMemoryEmployeeStore implements EmployeeStore {
     }
 
     private DepartmentKey deptKeyOf(Employee e) {
-        return new DepartmentKey(e.getDepartmentId(),
-                // department name not on Employee — use id as name placeholder for key uniqueness
-                String.valueOf(e.getDepartmentId()));
+        return new DepartmentKey(e.getDepartmentId(), String.valueOf(e.getDepartmentId()));
     }
 
-    // ── CRUD ─────────────────────────────────────────────────────────────────
+    // ── CRUD ───────────────────────────────────────��──────────────────────────
 
     @Override
     public void add(Employee employee) throws DuplicateEmployeeException, DuplicateEmailException {
@@ -73,7 +58,6 @@ public class InMemoryEmployeeStore implements EmployeeStore {
         Employee existing = store.get(oldKey);
         EmployeeKey newKey = keyOf(employee);
 
-        // If email changed — check uniqueness, update emailIndex
         String oldNormEmail = existing.getEmail().strip().toLowerCase();
         String newNormEmail = employee.getEmail().strip().toLowerCase();
         if (!oldNormEmail.equals(newNormEmail)) {
@@ -85,7 +69,6 @@ public class InMemoryEmployeeStore implements EmployeeStore {
             idIndex.put(employee.getId(), newKey);
         }
 
-        // If department changed — update department index
         DepartmentKey oldDeptKey = deptKeyOf(existing);
         DepartmentKey newDeptKey = deptKeyOf(employee);
         if (!oldDeptKey.equals(newDeptKey)) {
@@ -128,7 +111,6 @@ public class InMemoryEmployeeStore implements EmployeeStore {
 
     @Override
     public List<Employee> findByDepartment(int departmentId) {
-        // DepartmentKey (record) as HashMap key — equals/hashCode auto-generated
         DepartmentKey deptKey = new DepartmentKey(departmentId, String.valueOf(departmentId));
         Set<Integer> ids = departmentIndex.getOrDefault(deptKey, Collections.emptySet());
         return ids.stream()
@@ -183,16 +165,12 @@ public class InMemoryEmployeeStore implements EmployeeStore {
 
     @Override
     public double totalSalary() {
-        return store.values().stream()
-                    .mapToDouble(Employee::getSalary)
-                    .sum();
+        return store.values().stream().mapToDouble(Employee::getSalary).sum();
     }
 
     @Override
     public double averageSalary() {
-        return store.values().stream()
-                    .mapToDouble(Employee::getSalary)
-                    .average()
-                    .orElse(0.0);
+        return store.values().stream().mapToDouble(Employee::getSalary).average().orElse(0.0);
     }
 }
+

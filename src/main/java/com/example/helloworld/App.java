@@ -1,11 +1,11 @@
 package com.example.helloworld;
 
 import com.example.helloworld.exception.*;
-import com.example.helloworld.model.*;
-import com.example.helloworld.store.DepartmentKey;
-import com.example.helloworld.store.EmployeeKey;
-import com.example.helloworld.store.EmployeeStore;
-import com.example.helloworld.store.InMemoryEmployeeStore;
+import com.example.helloworld.domain.*;
+import com.example.helloworld.repository.DepartmentKey;
+import com.example.helloworld.repository.EmployeeKey;
+import com.example.helloworld.repository.EmployeeRepository;
+import com.example.helloworld.repository.inmemory.InMemoryEmployeeRepository;
 
 import java.time.LocalDate;
 import java.util.HashMap;
@@ -66,7 +66,7 @@ public class App {
         // PART 2 — InMemoryEmployeeStore (backed by EmployeeKey + DepartmentKey)
         // ════════════════════════════════════════════════════════════════════
 
-        EmployeeStore store = new InMemoryEmployeeStore();
+        EmployeeRepository store = new InMemoryEmployeeRepository();
 
         Employee alice = new PermanentEmployee(1, "Alice Kumar", "alice@example.com", 10, "Engineer",    85_000, EmployeeStatus.ACTIVE,   LocalDate.of(2020, 6,  1),  true);
         Employee bob   = new PermanentEmployee(2, "Bob Singh",   "bob@example.com",   10, "Engineer",    90_000, EmployeeStatus.ACTIVE,   LocalDate.of(2019, 3, 15),  true);
@@ -116,7 +116,7 @@ public class App {
         // PART 3 — Custom exception demo
         // ════════════════════════════════════════════════════════════════════
 
-        EmployeeStore exStore = new InMemoryEmployeeStore();
+        EmployeeRepository exStore = new InMemoryEmployeeRepository();
         Employee emp = new PermanentEmployee(1, "Alice Kumar", "alice@example.com", 10,
                 "Engineer", 85_000, EmployeeStatus.ACTIVE, LocalDate.of(2020, 6, 1), true);
         exStore.add(emp);
