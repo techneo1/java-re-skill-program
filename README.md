@@ -4,13 +4,14 @@
 
 This project demonstrates a **layered Java application** applying core OOP concepts in Java 17,
 including **sealed class hierarchies**, **records**, **encapsulation**, **abstraction**, and
-**inheritance**, organised into three distinct layers:
+**inheritance**, organised into four distinct layers:
 
 | Layer          | Package                                      | Responsibility                          |
 |----------------|----------------------------------------------|-----------------------------------------|
 | **Domain**     | `com.example.helloworld.domain`              | Core business entities and value types  |
 | **Repository** | `com.example.helloworld.repository`          | Data access contract + key types        |
 | **In-Memory**  | `com.example.helloworld.repository.inmemory` | Collections-backed repository impl      |
+| **Service**    | `com.example.helloworld.service`             | Business logic; orchestrates repository |
 
 ---
 
@@ -32,6 +33,9 @@ src/main/java/com/example/helloworld/
 │   ├── DepartmentKey.java                     — Record-based HashMap key
 │   └── inmemory/
 │       └── InMemoryEmployeeRepository.java    — Collections-backed implementation
+├── service/
+│   ├── EmployeeService.java                   — Interface: service contract
+│   └── EmployeeServiceImpl.java               — Implementation: delegates to repository
 └── exception/
     ├── EmployeeException.java                 — Base checked exception
     ├── DuplicateEmployeeException.java
@@ -201,6 +205,48 @@ indexes** for O(1) lookups.
 
 ---
 
+## Service Layer
+
+### `EmployeeService` (Interface)
+
+Defines the business-facing contract. Method names are intentionally higher-level than the
+repository to reflect *intent* rather than data access (`addEmployee` vs `add`,
+`getById` vs `findById`, etc.).
+
+```
+EmployeeService          (interface — service/)
+    └── EmployeeServiceImpl  (implementation — service/)
+```
+
+### `EmployeeServiceImpl`
+
+Receives an `EmployeeRepository` via constructor injection and delegates every operation
+to it. The full call chain is:
+
+```
+App  →  EmployeeService  →  EmployeeRepository  →  InMemoryEmployeeRepository
+```
+
+#### Methods
+
+| Method                           | Description                                              |
+|----------------------------------|----------------------------------------------------------|
+| `addEmployee(Employee)`          | Adds employee; throws on duplicate id or email           |
+| `updateEmployee(Employee)`       | Updates employee; throws if not found or email taken     |
+| `removeEmployee(int id)`         | Removes employee by id; throws if not found              |
+| `getById(int id)`                | Returns `Optional<Employee>`                             |
+| `getAllEmployees()`              | Returns all employees                                    |
+| `getByDepartment(int)`           | Returns employees in the given department                |
+| `getByStatus(EmployeeStatus)`    | Returns employees matching the given status              |
+| `getByRole(String)`              | Case-insensitive partial match on role                   |
+| `getByEmail(String)`             | Returns `Optional<Employee>` by email                    |
+| `getBySalaryRange(double, double)` | Returns employees within the salary range              |
+| `countEmployees()`               | Total number of employees                                |
+| `totalSalary()`                  | Sum of all employee salaries                             |
+| `averageSalary()`                | Average salary; returns `0.0` if no employees            |
+
+---
+
 ## Exception Layer
 
 All exceptions extend `EmployeeException` (checked), allowing callers to catch either
@@ -231,6 +277,7 @@ All fields in `Employee` are `private`. Only mutable fields (`salary`, `status`,
 `contractEndDate`) expose setters, each with validation guards.
 
 ### 🎭 Abstraction
+`EmployeeService` defines *what* the business layer can do without exposing *how*.
 `EmployeeRepository` defines *what* the data layer can do without exposing *how*.
 `getEmployeeType()` is declared `abstract` in `Employee`, forcing each concrete subclass
 to provide its own implementation.

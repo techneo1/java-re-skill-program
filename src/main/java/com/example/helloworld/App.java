@@ -6,6 +6,8 @@ import com.example.helloworld.repository.DepartmentKey;
 import com.example.helloworld.repository.EmployeeKey;
 import com.example.helloworld.repository.EmployeeRepository;
 import com.example.helloworld.repository.inmemory.InMemoryEmployeeRepository;
+import com.example.helloworld.service.EmployeeService;
+import com.example.helloworld.service.EmployeeServiceImpl;
 
 import java.time.LocalDate;
 import java.util.HashMap;
@@ -63,10 +65,11 @@ public class App {
         System.out.println("dk1.equals(dk4) case-insensitive match: " + dk1.equals(dk4));
 
         // ════════════════════════════════════════════════════════════════════
-        // PART 2 — InMemoryEmployeeStore (backed by EmployeeKey + DepartmentKey)
+        // PART 2 — EmployeeService (service → repository → in-memory)
         // ════════════════════════════════════════════════════════════════════
 
-        EmployeeRepository store = new InMemoryEmployeeRepository();
+        EmployeeRepository repository = new InMemoryEmployeeRepository();
+        EmployeeService service = new EmployeeServiceImpl(repository);
 
         Employee alice = new PermanentEmployee(1, "Alice Kumar", "alice@example.com", 10, "Engineer",    85_000, EmployeeStatus.ACTIVE,   LocalDate.of(2020, 6,  1),  true);
         Employee bob   = new PermanentEmployee(2, "Bob Singh",   "bob@example.com",   10, "Engineer",    90_000, EmployeeStatus.ACTIVE,   LocalDate.of(2019, 3, 15),  true);
@@ -74,102 +77,98 @@ public class App {
         Employee dave  = new PermanentEmployee(4, "Dave Patel",  "dave@example.com",  20, "Manager",    110_000, EmployeeStatus.ACTIVE,   LocalDate.of(2017, 8, 20),  true);
         Employee eve   = new ContractEmployee (5, "Eve Sharma",  "eve@example.com",   30, "QA Analyst",  55_000, EmployeeStatus.INACTIVE, LocalDate.of(2022, 5, 10),  LocalDate.of(2024, 5, 9));
 
-        store.add(alice); store.add(bob); store.add(carol); store.add(dave); store.add(eve);
+        service.addEmployee(alice); service.addEmployee(bob); service.addEmployee(carol);
+        service.addEmployee(dave);  service.addEmployee(eve);
 
-        printSection("All Employees (" + store.count() + ")");
-        store.findAll().forEach(System.out::println);
+        printSection("All Employees (" + service.countEmployees() + ")");
+        service.getAllEmployees().forEach(System.out::println);
 
         printSection("Find by id = 3");
-        store.findById(3).ifPresent(System.out::println);
+        service.getById(3).ifPresent(System.out::println);
 
         printSection("Find by email = dave@example.com");
-        store.findByEmail("dave@example.com").ifPresent(System.out::println);
+        service.getByEmail("dave@example.com").ifPresent(System.out::println);
 
         printSection("Employees in Department 10");
-        store.findByDepartment(10).forEach(System.out::println);
+        service.getByDepartment(10).forEach(System.out::println);
 
         printSection("INACTIVE Employees");
-        store.findByStatus(EmployeeStatus.INACTIVE).forEach(System.out::println);
+        service.getByStatus(EmployeeStatus.INACTIVE).forEach(System.out::println);
 
         printSection("Employees with role containing 'engineer'");
-        store.findByRole("engineer").forEach(System.out::println);
+        service.getByRole("engineer").forEach(System.out::println);
 
         printSection("Salary range 60,000 – 95,000");
-        store.findBySalaryRange(60_000, 95_000).forEach(System.out::println);
+        service.getBySalaryRange(60_000, 95_000).forEach(System.out::println);
 
         printSection("Aggregations");
-        System.out.printf("  Total employees : %d%n",   store.count());
-        System.out.printf("  Total salary    : %.2f%n", store.totalSalary());
-        System.out.printf("  Average salary  : %.2f%n", store.averageSalary());
+        System.out.printf("  Total employees : %d%n",   service.countEmployees());
+        System.out.printf("  Total salary    : %.2f%n", service.totalSalary());
+        System.out.printf("  Average salary  : %.2f%n", service.averageSalary());
 
         printSection("Update Alice's salary to 95,000");
         alice.setSalary(95_000);
-        store.update(alice);
-        store.findById(1).ifPresent(System.out::println);
+        service.updateEmployee(alice);
+        service.getById(1).ifPresent(System.out::println);
 
         printSection("Remove Eve (id=5)");
-        store.remove(5);
-        System.out.println("Store size after removal : " + store.count());
-        System.out.println("Find Eve by id           : " + store.findById(5));
+        service.removeEmployee(5);
+        System.out.println("Store size after removal : " + service.countEmployees());
+        System.out.println("Find Eve by id           : " + service.getById(5));
 
         // ════════════════════════════════════════════════════════════════════
         // PART 3 — Custom exception demo
         // ════════════════════════════════════════════════════════════════════
 
-        EmployeeRepository exStore = new InMemoryEmployeeRepository();
+        EmployeeService exService = new EmployeeServiceImpl(new InMemoryEmployeeRepository());
         Employee emp = new PermanentEmployee(1, "Alice Kumar", "alice@example.com", 10,
                 "Engineer", 85_000, EmployeeStatus.ACTIVE, LocalDate.of(2020, 6, 1), true);
-        exStore.add(emp);
+        exService.addEmployee(emp);
 
-        // ── DuplicateEmployeeException ────────────────────────────────────
         printSection("DuplicateEmployeeException — add same id twice");
         try {
             Employee duplicate = new PermanentEmployee(1, "Alice Copy", "alice.copy@example.com",
                     10, "Engineer", 80_000, EmployeeStatus.ACTIVE, LocalDate.of(2021, 1, 1), true);
-            exStore.add(duplicate);
+            exService.addEmployee(duplicate);
         } catch (DuplicateEmployeeException e) {
             System.out.println("Caught : " + e.getClass().getSimpleName());
             System.out.println("Message: " + e.getMessage());
             System.out.println("Duplicate id: " + e.getDuplicateId());
         }
 
-        // ── DuplicateEmailException ───────────────────────────────────────
         printSection("DuplicateEmailException — add different id but same email");
         try {
             Employee sameEmail = new PermanentEmployee(2, "Alice Twin", "alice@example.com",
                     10, "Engineer", 80_000, EmployeeStatus.ACTIVE, LocalDate.of(2021, 1, 1), true);
-            exStore.add(sameEmail);
+            exService.addEmployee(sameEmail);
         } catch (DuplicateEmailException e) {
             System.out.println("Caught : " + e.getClass().getSimpleName());
             System.out.println("Message: " + e.getMessage());
             System.out.println("Duplicate email: " + e.getDuplicateEmail());
         }
 
-        // ── EmployeeNotFoundException (remove) ────────────────────────────
         printSection("EmployeeNotFoundException — remove non-existent id");
         try {
-            exStore.remove(999);
+            exService.removeEmployee(999);
         } catch (EmployeeNotFoundException e) {
             System.out.println("Caught : " + e.getClass().getSimpleName());
             System.out.println("Message: " + e.getMessage());
             System.out.println("Search key: " + e.getSearchKey());
         }
 
-        // ── EmployeeNotFoundException (update) ────────────────────────────
         printSection("EmployeeNotFoundException — update non-existent employee");
         try {
             Employee ghost = new PermanentEmployee(404, "Ghost User", "ghost@example.com",
                     10, "Engineer", 50_000, EmployeeStatus.INACTIVE, LocalDate.of(2020, 1, 1), false);
-            exStore.update(ghost);
+            exService.updateEmployee(ghost);
         } catch (EmployeeNotFoundException e) {
             System.out.println("Caught : " + e.getClass().getSimpleName());
             System.out.println("Message: " + e.getMessage());
         }
 
-        // ── InvalidEmployeeDataException ──────────────────────────────────
         printSection("InvalidEmployeeDataException — negative min salary in range query");
         try {
-            exStore.findBySalaryRange(-1000, 90_000);
+            exService.getBySalaryRange(-1000, 90_000);
         } catch (InvalidEmployeeDataException e) {
             System.out.println("Caught : " + e.getClass().getSimpleName());
             System.out.println("Message: " + e.getMessage());
@@ -179,16 +178,15 @@ public class App {
 
         printSection("InvalidEmployeeDataException — min > max in range query");
         try {
-            exStore.findBySalaryRange(90_000, 50_000);
+            exService.getBySalaryRange(90_000, 50_000);
         } catch (InvalidEmployeeDataException e) {
             System.out.println("Caught : " + e.getClass().getSimpleName());
             System.out.println("Message: " + e.getMessage());
         }
 
-        // ── Catching via base EmployeeException ───────────────────────────
         printSection("Catching all via base EmployeeException");
         try {
-            exStore.remove(777);
+            exService.removeEmployee(777);
         } catch (EmployeeException e) {
             System.out.println("Caught as base type : " + e.getClass().getSimpleName());
             System.out.println("Message             : " + e.getMessage());
