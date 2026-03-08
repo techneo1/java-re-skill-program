@@ -24,10 +24,14 @@ public class InMemoryEmployeeRepository implements EmployeeRepository {
     }
 
     private DepartmentKey deptKeyOf(Employee e) {
-        return new DepartmentKey(e.getDepartmentId(), String.valueOf(e.getDepartmentId()));
+        return new DepartmentKey(e.getDepartmentId());
     }
 
-    // ── CRUD ───────────────────────────────────────��──────────────────────────
+    private static String normaliseEmail(String email) {
+        return email.strip().toLowerCase();
+    }
+
+    // ── CRUD ──────────────────────────────────────────────────────────────────
 
     @Override
     public void add(Employee employee) throws DuplicateEmployeeException, DuplicateEmailException {
@@ -35,7 +39,7 @@ public class InMemoryEmployeeRepository implements EmployeeRepository {
         if (idIndex.containsKey(employee.getId()))
             throw new DuplicateEmployeeException(employee.getId());
 
-        String normEmail = employee.getEmail().strip().toLowerCase();
+        String normEmail = normaliseEmail(employee.getEmail());
         if (emailIndex.containsKey(normEmail))
             throw new DuplicateEmailException(employee.getEmail());
 
@@ -58,8 +62,8 @@ public class InMemoryEmployeeRepository implements EmployeeRepository {
         Employee existing = store.get(oldKey);
         EmployeeKey newKey = keyOf(employee);
 
-        String oldNormEmail = existing.getEmail().strip().toLowerCase();
-        String newNormEmail = employee.getEmail().strip().toLowerCase();
+        String oldNormEmail = normaliseEmail(existing.getEmail());
+        String newNormEmail = normaliseEmail(employee.getEmail());
         if (!oldNormEmail.equals(newNormEmail)) {
             if (emailIndex.containsKey(newNormEmail))
                 throw new DuplicateEmailException(employee.getEmail());
@@ -90,7 +94,7 @@ public class InMemoryEmployeeRepository implements EmployeeRepository {
 
         Employee existing = store.remove(key);
         if (existing != null) {
-            emailIndex.remove(existing.getEmail().strip().toLowerCase());
+            emailIndex.remove(normaliseEmail(existing.getEmail()));
             Set<Integer> deptSet = departmentIndex.get(deptKeyOf(existing));
             if (deptSet != null) deptSet.remove(id);
         }
@@ -111,7 +115,7 @@ public class InMemoryEmployeeRepository implements EmployeeRepository {
 
     @Override
     public List<Employee> findByDepartment(int departmentId) {
-        DepartmentKey deptKey = new DepartmentKey(departmentId, String.valueOf(departmentId));
+        DepartmentKey deptKey = new DepartmentKey(departmentId);
         Set<Integer> ids = departmentIndex.getOrDefault(deptKey, Collections.emptySet());
         return ids.stream()
                   .map(idIndex::get)
@@ -141,7 +145,7 @@ public class InMemoryEmployeeRepository implements EmployeeRepository {
     @Override
     public Optional<Employee> findByEmail(String email) {
         Objects.requireNonNull(email, "email must not be null");
-        Integer id = emailIndex.get(email.strip().toLowerCase());
+        Integer id = emailIndex.get(normaliseEmail(email));
         if (id == null) return Optional.empty();
         EmployeeKey key = idIndex.get(id);
         return Optional.ofNullable(key != null ? store.get(key) : null);

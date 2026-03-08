@@ -48,9 +48,9 @@ public class App {
         printSection("DepartmentKey — Record as HashMap key");
 
         Map<DepartmentKey, String> deptMap = new HashMap<>();
-        DepartmentKey dk1 = new DepartmentKey(10, "Engineering");
-        DepartmentKey dk2 = new DepartmentKey(20, "Design");
-        DepartmentKey dk3 = new DepartmentKey(10, "Engineering"); // same as dk1
+        DepartmentKey dk1 = new DepartmentKey(10);
+        DepartmentKey dk2 = new DepartmentKey(20);
+        DepartmentKey dk3 = new DepartmentKey(10); // same as dk1
 
         deptMap.put(dk1, "Floor 3, Block A");
         deptMap.put(dk2, "Floor 1, Block B");
@@ -61,8 +61,8 @@ public class App {
         System.out.println("Lookup with dk3 (new record, same data): " + deptMap.get(dk3));
         System.out.println("Map size (no duplicates): " + deptMap.size());
 
-        DepartmentKey dk4 = new DepartmentKey(10, "ENGINEERING");
-        System.out.println("dk1.equals(dk4) case-insensitive match: " + dk1.equals(dk4));
+        DepartmentKey dk4 = new DepartmentKey(10);
+        System.out.println("dk1.equals(dk4) same id: " + dk1.equals(dk4));
 
         // ════════════════════════════════════════════════════════════════════
         // PART 2 — Controller → Service → Repository (layered architecture)

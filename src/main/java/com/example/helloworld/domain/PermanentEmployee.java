@@ -20,6 +20,11 @@ public final class PermanentEmployee extends Employee {
     public boolean isGratuityEligible() { return gratuityEligible; }
 
     @Override
+    protected String extraFields() {
+        return String.format(", gratuityEligible=%b", gratuityEligible);
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (!(o instanceof PermanentEmployee other)) return false;
@@ -30,12 +35,4 @@ public final class PermanentEmployee extends Employee {
     public int hashCode() {
         return Objects.hash(super.hashCode(), gratuityEligible);
     }
-
-    @Override
-    public String toString() {
-        return super.toString() +
-               String.format(", gratuityEligible=%b}", gratuityEligible)
-                       .replace("}}", "}");
-    }
 }
-

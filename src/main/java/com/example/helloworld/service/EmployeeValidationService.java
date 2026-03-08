@@ -15,10 +15,10 @@ public class EmployeeValidationService implements ValidationService {
         if (employee.getId() <= 0)
             throw new ValidationException("id", employee.getId(), "must be positive");
 
-        if (employee.getName() == null || employee.getName().isBlank())
+        if (employee.getName().isBlank())
             throw new ValidationException("name", employee.getName(), "must not be blank");
 
-        if (employee.getEmail() == null || employee.getEmail().isBlank())
+        if (employee.getEmail().isBlank())
             throw new ValidationException("email", employee.getEmail(), "must not be blank");
 
         if (!employee.getEmail().contains("@"))
@@ -42,4 +42,3 @@ public class EmployeeValidationService implements ValidationService {
                     "contract has already expired");
     }
 }
-

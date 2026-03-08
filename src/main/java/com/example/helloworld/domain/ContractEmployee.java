@@ -32,6 +32,11 @@ public final class ContractEmployee extends Employee {
     }
 
     @Override
+    protected String extraFields() {
+        return String.format(", contractEndDate=%s", contractEndDate);
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (!(o instanceof ContractEmployee other)) return false;
@@ -42,12 +47,4 @@ public final class ContractEmployee extends Employee {
     public int hashCode() {
         return Objects.hash(super.hashCode(), contractEndDate);
     }
-
-    @Override
-    public String toString() {
-        return super.toString() +
-               String.format(", contractEndDate=%s}", contractEndDate)
-                       .replace("}}", "}");
-    }
 }
-

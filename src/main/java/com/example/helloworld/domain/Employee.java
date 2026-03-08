@@ -38,6 +38,9 @@ public abstract sealed class Employee
 
     public abstract String getEmployeeType();
 
+    /** Subclasses override to append extra fields to toString(). */
+    protected String extraFields() { return ""; }
+
     public int            getId()           { return id; }
     public String         getName()         { return name; }
     public String         getEmail()        { return email; }
@@ -72,9 +75,8 @@ public abstract sealed class Employee
     public String toString() {
         return String.format(
                 "%s{id=%d, name='%s', email='%s', departmentId=%d, role='%s', " +
-                "salary=%.2f, status=%s, joiningDate=%s}",
+                "salary=%.2f, status=%s, joiningDate=%s%s}",
                 getEmployeeType(), id, name, email, departmentId,
-                role, salary, status, joiningDate);
+                role, salary, status, joiningDate, extraFields());
     }
 }
-
