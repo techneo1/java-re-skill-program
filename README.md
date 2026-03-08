@@ -4,14 +4,37 @@
 
 This project demonstrates a **layered Java application** applying core OOP concepts in Java 17,
 including **sealed class hierarchies**, **records**, **encapsulation**, **abstraction**, and
-**inheritance**, organised into four distinct layers:
+**inheritance**, organised into five distinct layers following the
+**Controller → Service → Repository** architecture:
 
 | Layer          | Package                                      | Responsibility                                        |
 |----------------|----------------------------------------------|-------------------------------------------------------|
-| **Domain**     | `com.example.helloworld.domain`              | Core business entities, value types, payroll strategy |
+| **Controller** | `com.example.helloworld.controller`          | Entry point: validates input, delegates to service, handles all exceptions |
+| **Service**    | `com.example.helloworld.service`             | Business logic: employee, validation, payroll         |
 | **Repository** | `com.example.helloworld.repository`          | Data access contract + key types                      |
 | **In-Memory**  | `com.example.helloworld.repository.inmemory` | Collections-backed repository impl                   |
-| **Service**    | `com.example.helloworld.service`             | Business logic: employee, validation, payroll         |
+| **Domain**     | `com.example.helloworld.domain`              | Core business entities, value types, payroll strategy |
+
+---
+
+## Architecture
+
+```
+App
+ │
+ ├── EmployeeController  ──►  EmployeeService  ──►  EmployeeRepository  ──►  InMemoryEmployeeRepository
+ │        │
+ │        └── (validates via) ValidationService
+ │
+ └── PayrollController   ──►  PayrollService   ──►  PayrollStrategy
+                                                         ├── PermanentEmployeePayrollStrategy
+                                                         └── ContractEmployeePayrollStrategy
+```
+
+The **Controller layer** is the only entry point for callers. It:
+- Validates input using `ValidationService` before mutating state.
+- Delegates business operations to the appropriate `Service`.
+- Catches **all** checked exceptions — no exceptions leak to the caller.
 
 ---
 
@@ -20,6 +43,9 @@ including **sealed class hierarchies**, **records**, **encapsulation**, **abstra
 ```
 src/main/java/com/example/helloworld/
 ├── App.java                                        — Entry point / demo runner
+├── controller/
+│   ├── EmployeeController.java                     — Handles employee requests; catches all exceptions
+│   └── PayrollController.java                      — Handles payroll requests; catches all exceptions
 ├── domain/
 │   ├── EmployeeStatus.java                         — Enum: ACTIVE / INACTIVE
 │   ├── Employee.java                               — Sealed abstract base class
@@ -52,7 +78,58 @@ src/main/java/com/example/helloworld/
     ├── InvalidEmployeeDataException.java
     ├── PayrollException.java                       — Payroll calculation failure
     └── ValidationException.java                   — Business rule violation
+
+src/test/java/com/example/helloworld/
+├── controller/
+│   ├── EmployeeControllerTest.java                 — Mockito tests for EmployeeController
+│   └── PayrollControllerTest.java                  — Mockito tests for PayrollController
+├── domain/
+│   └── payroll/
+│       └── PayrollStrategyTest.java
+└── service/
+    ├── EmployeeServiceImplTest.java
+    ├── EmployeeValidationServiceTest.java
+    └── PayrollServiceImplTest.java
 ```
+
+---
+
+## Controller Layer
+
+The controller layer sits at the top of the stack. It is the **only** layer that callers
+(e.g. `App.java`) interact with directly.
+
+### `EmployeeController`
+
+Wires together `EmployeeService` and `ValidationService`. Validates every mutating
+request before it reaches the service. All checked exceptions are caught internally
+and printed to stderr — callers never need a `try/catch`.
+
+| Method                             | Behaviour                                                                  |
+|------------------------------------|----------------------------------------------------------------------------|
+| `addEmployee(Employee)`            | Validates → adds; handles `ValidationException`, `DuplicateEmployeeException`, `DuplicateEmailException` |
+| `updateEmployee(Employee)`         | Validates → updates; handles `ValidationException`, `EmployeeNotFoundException`, `DuplicateEmailException` |
+| `removeEmployee(int id)`           | Removes; handles `EmployeeNotFoundException`                               |
+| `getById(int id)`                  | Returns `Optional<Employee>`                                               |
+| `getByEmail(String)`               | Returns `Optional<Employee>`                                               |
+| `getAllEmployees()`                 | Returns all employees                                                      |
+| `getByDepartment(int)`             | Returns employees in given department                                      |
+| `getByStatus(EmployeeStatus)`      | Returns employees matching status                                          |
+| `getByRole(String)`                | Case-insensitive partial match on role                                     |
+| `getBySalaryRange(double, double)` | Returns employees in range; returns empty list on `InvalidEmployeeDataException` |
+| `countEmployees()`                 | Total number of employees                                                  |
+| `totalSalary()`                    | Sum of all salaries                                                        |
+| `averageSalary()`                  | Average salary                                                             |
+
+### `PayrollController`
+
+Wraps `PayrollService`. Exceptions from payroll calculation are caught and logged to
+stderr — callers never need a `try/catch`.
+
+| Method                                        | Behaviour                                                                   |
+|-----------------------------------------------|-----------------------------------------------------------------------------|
+| `processPayroll(recordId, employee, month)`   | Processes one employee; returns `null` (not a throw) on `PayrollException`  |
+| `processAll(employees, month)`                | Fault-tolerant batch; returns successfully processed records                |
 
 ---
 
@@ -230,11 +307,11 @@ indexes** for O(1) lookups.
 
 #### Aggregations
 
-| Method          | Description                                       |
-|-----------------|---------------------------------------------------|
-| `count()`       | Total number of employees                         |
-| `totalSalary()` | Sum of all employee salaries                      |
-| `averageSalary()` | Average salary; returns `0.0` if store is empty |
+| Method            | Description                                       |
+|-------------------|---------------------------------------------------|
+| `count()`         | Total number of employees                         |
+| `totalSalary()`   | Sum of all employee salaries                      |
+| `averageSalary()` | Average salary; returns `0.0` if store is empty   |
 
 ---
 
@@ -246,7 +323,7 @@ Defines the business-facing CRUD and query contract. Receives an `EmployeeReposi
 constructor injection and delegates every operation to it.
 
 ```
-App  →  EmployeeService  →  EmployeeRepository  →  InMemoryEmployeeRepository
+EmployeeController  →  EmployeeService  →  EmployeeRepository  →  InMemoryEmployeeRepository
 ```
 
 | Method                             | Description                                          |
@@ -270,6 +347,7 @@ App  →  EmployeeService  →  EmployeeRepository  →  InMemoryEmployeeReposit
 ### `ValidationService` / `EmployeeValidationService`
 
 Validates an `Employee` against business rules before it is persisted.
+Called by `EmployeeController` before every mutating operation.
 Throws `ValidationException` on the first rule violation found.
 
 | Rule checked                             | Exception message                               |
@@ -289,7 +367,7 @@ Throws `ValidationException` on the first rule violation found.
 Selects the correct `PayrollStrategy` for each employee type and delegates the calculation.
 
 ```
-App  →  PayrollService  →  PayrollStrategy  →  PayrollRecord
+PayrollController  →  PayrollService  →  PayrollStrategy  →  PayrollRecord
 ```
 
 | Method                                         | Description                                                               |
@@ -310,6 +388,7 @@ App  →  PayrollService  →  PayrollStrategy  →  PayrollRecord
 
 All exceptions extend `EmployeeException` (checked), allowing callers to catch either
 the broad base type or a specific subtype.
+The **Controller layer** catches all of these — they never propagate to `App.java`.
 
 ```
 EmployeeException  (base)
@@ -325,6 +404,12 @@ EmployeeException  (base)
 
 ## OOP Concepts Applied
 
+### 🏛️ Layered Architecture (Controller → Service → Repository)
+Each layer has a **single responsibility** and communicates only with the layer directly below it:
+- **Controller** — handles input, validation, and exception boundaries
+- **Service** — orchestrates business logic, unaware of HTTP/CLI concerns
+- **Repository** — manages data persistence, unaware of business rules
+
 ### 🔒 Sealed Class Hierarchy
 ```
 Employee (sealed abstract)
@@ -339,6 +424,7 @@ All fields in `Employee` are `private`. Only mutable fields (`salary`, `status`,
 `contractEndDate`) expose setters, each with validation guards.
 
 ### 🎭 Abstraction
+- `EmployeeController` — *what* callers can request, hiding service/exception details
 - `EmployeeService` — *what* the business layer can do, not *how*
 - `EmployeeRepository` — *what* the data layer can do, not *how*
 - `PayrollStrategy` — *what* payroll calculation looks like, not *how*
@@ -377,6 +463,9 @@ reducing boilerplate while enforcing immutability.
 ```bash
 # Compile
 mvn compile
+
+# Run tests
+mvn test
 
 # Run main class
 mvn exec:java
