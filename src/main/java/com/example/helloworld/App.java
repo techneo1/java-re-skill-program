@@ -6,11 +6,11 @@ import com.example.helloworld.repository.DepartmentKey;
 import com.example.helloworld.repository.EmployeeKey;
 import com.example.helloworld.repository.EmployeeRepository;
 import com.example.helloworld.repository.inmemory.InMemoryEmployeeRepository;
-import com.example.helloworld.service.EmployeeService;
-import com.example.helloworld.service.EmployeeServiceImpl;
+import com.example.helloworld.service.*;
 
 import java.time.LocalDate;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class App {
@@ -191,6 +191,100 @@ public class App {
             System.out.println("Caught as base type : " + e.getClass().getSimpleName());
             System.out.println("Message             : " + e.getMessage());
         }
+
+        // ════════════════════════════════════════════════════════════════════
+        // PART 4 — ValidationService + PayrollService + error handling
+        // ════════════════════════════════════════════════════════════════════
+
+        ValidationService validationService = new EmployeeValidationService();
+        PayrollService    payrollService    = new PayrollServiceImpl();
+        LocalDate         payrollMonth      = LocalDate.of(2026, 3, 1);
+
+        // ── ValidationService ─────────────────────────────────────────────
+        printSection("ValidationService — valid permanent employee");
+        Employee validEmp = new PermanentEmployee(10, "Sara Ali", "sara@example.com",
+                10, "Engineer", 80_000, EmployeeStatus.ACTIVE, LocalDate.of(2021, 4, 1), true);
+        try {
+            validationService.validate(validEmp);
+            System.out.println("Validation passed for: " + validEmp.getName());
+        } catch (ValidationException e) {
+            System.out.println("Unexpected: " + e.getMessage());
+        }
+
+        printSection("ValidationException — INACTIVE employee");
+        Employee inactiveEmp = new PermanentEmployee(11, "Joe Doe", "joe@example.com",
+                10, "Analyst", 60_000, EmployeeStatus.INACTIVE, LocalDate.of(2020, 1, 1), false);
+        try {
+            validationService.validate(inactiveEmp);
+        } catch (ValidationException e) {
+            System.out.println("Caught : " + e.getClass().getSimpleName());
+            System.out.println("Message: " + e.getMessage());
+            System.out.println("Field  : " + e.getFieldName());
+            System.out.println("Value  : " + e.getRejectedValue());
+        }
+
+        printSection("ValidationException — expired contract employee");
+        Employee expiredContract = new ContractEmployee(12, "Raj Kumar", "raj@example.com",
+                20, "Designer", 50_000, EmployeeStatus.ACTIVE,
+                LocalDate.of(2022, 1, 1), LocalDate.of(2023, 6, 30));
+        try {
+            validationService.validate(expiredContract);
+        } catch (ValidationException e) {
+            System.out.println("Caught : " + e.getClass().getSimpleName());
+            System.out.println("Message: " + e.getMessage());
+        }
+
+        printSection("ValidationException — invalid email (no @)");
+        Employee badEmail = new PermanentEmployee(13, "Bad Email", "notanemail",
+                10, "Engineer", 70_000, EmployeeStatus.ACTIVE, LocalDate.of(2022, 1, 1), true);
+        try {
+            validationService.validate(badEmail);
+        } catch (ValidationException e) {
+            System.out.println("Caught : " + e.getClass().getSimpleName());
+            System.out.println("Message: " + e.getMessage());
+        }
+
+        // ── PayrollService ────────────────────────────────────────────────
+        printSection("PayrollService — permanent employee (tax 20%)");
+        try {
+            PayrollRecord pr = payrollService.processPayroll(1, validEmp, payrollMonth);
+            System.out.printf("  Employee : %s%n",    validEmp.getName());
+            System.out.printf("  Gross    : %.2f%n",  pr.grossSalary());
+            System.out.printf("  Tax (20%%): %.2f%n", pr.taxAmount());
+            System.out.printf("  Net      : %.2f%n",  pr.netSalary());
+        } catch (PayrollException e) {
+            System.out.println("Unexpected: " + e.getMessage());
+        }
+
+        printSection("PayrollService — contract employee (tax 10%)");
+        Employee activeContract = new ContractEmployee(14, "Lisa Chen", "lisa@example.com",
+                20, "Designer", 60_000, EmployeeStatus.ACTIVE,
+                LocalDate.of(2024, 1, 1), LocalDate.of(2027, 1, 1));
+        try {
+            PayrollRecord pr = payrollService.processPayroll(2, activeContract, payrollMonth);
+            System.out.printf("  Employee : %s%n",    activeContract.getName());
+            System.out.printf("  Gross    : %.2f%n",  pr.grossSalary());
+            System.out.printf("  Tax (10%%): %.2f%n", pr.taxAmount());
+            System.out.printf("  Net      : %.2f%n",  pr.netSalary());
+        } catch (PayrollException e) {
+            System.out.println("Unexpected: " + e.getMessage());
+        }
+
+        printSection("PayrollException — expired contract employee");
+        try {
+            payrollService.processPayroll(3, expiredContract, payrollMonth);
+        } catch (PayrollException e) {
+            System.out.println("Caught : " + e.getClass().getSimpleName());
+            System.out.println("Message: " + e.getMessage());
+            System.out.println("Employee id: " + e.getEmployeeId());
+        }
+
+        printSection("PayrollService.processAll — mixed batch (expired contract skipped)");
+        List<Employee> batch = List.of(validEmp, activeContract, expiredContract);
+        List<PayrollRecord> records = payrollService.processAll(batch, payrollMonth);
+        System.out.println("Records processed: " + records.size() + " of " + batch.size());
+        records.forEach(r -> System.out.printf("  id=%-2d  employeeId=%-2d  net=%.2f%n",
+                r.id(), r.employeeId(), r.netSalary()));
     }
 
     private static void printSection(String title) {
