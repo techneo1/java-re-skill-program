@@ -20,15 +20,27 @@ import java.util.Objects;
  */
 public class PayrollServiceImpl implements PayrollService {
 
-    private final PayrollStrategy permanentStrategy = new PermanentEmployeePayrollStrategy();
-    private final PayrollStrategy contractStrategy  = new ContractEmployeePayrollStrategy();
+    private final PayrollStrategyResolver resolver;
+
+    /**
+     * Default wiring for the demo app/tests.
+     * New employee types can be supported by registering another strategy.
+     */
+    public PayrollServiceImpl() {
+        this(defaultRegistry());
+    }
+
+    public PayrollServiceImpl(PayrollStrategyResolver resolver) {
+        this.resolver = Objects.requireNonNull(resolver, "resolver must not be null");
+    }
 
     @Override
     public PayrollRecord processPayroll(int recordId, Employee employee, LocalDate payrollMonth)
             throws PayrollException {
         Objects.requireNonNull(employee,     "employee must not be null");
         Objects.requireNonNull(payrollMonth, "payrollMonth must not be null");
-        return strategyFor(employee).calculate(recordId, employee, payrollMonth);
+        PayrollStrategy strategy = resolver.resolve(employee);
+        return strategy.calculate(recordId, employee, payrollMonth);
     }
 
     @Override
@@ -49,10 +61,9 @@ public class PayrollServiceImpl implements PayrollService {
         return List.copyOf(results);
     }
 
-    private PayrollStrategy strategyFor(Employee employee) throws PayrollException {
-        if (employee instanceof PermanentEmployee) return permanentStrategy;
-        if (employee instanceof ContractEmployee)  return contractStrategy;
-        throw new PayrollException(employee.getId(),
-                "No payroll strategy for type: " + employee.getEmployeeType());
+    private static PayrollStrategyResolver defaultRegistry() {
+        return new PayrollStrategyRegistry()
+                .register(PermanentEmployee.class, new PermanentEmployeePayrollStrategy())
+                .register(ContractEmployee.class, new ContractEmployeePayrollStrategy());
     }
 }

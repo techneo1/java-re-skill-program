@@ -26,9 +26,9 @@ App
  │        │
  │        └── (validates via) ValidationService
  │
- └── PayrollController   ──►  PayrollService   ──►  PayrollStrategy
-                                                         ├── PermanentEmployeePayrollStrategy
-                                                         └── ContractEmployeePayrollStrategy
+ └── PayrollController   ──►  PayrollService   ──►  PayrollStrategyResolver ──► PayrollStrategy
+                                                       ├── PermanentEmployeePayrollStrategy
+                                                       └── ContractEmployeePayrollStrategy
 ```
 
 The **Controller layer** is the only entry point for callers. It:
@@ -69,7 +69,9 @@ src/main/java/com/example/helloworld/
 │   ├── ValidationService.java                      — Interface: employee validation
 │   ├── EmployeeValidationService.java              — Impl: business rule validation
 │   ├── PayrollService.java                         — Interface: payroll processing
-│   └── PayrollServiceImpl.java                     — Selects strategy, fault-tolerant batch
+│   ├── PayrollServiceImpl.java                     — Payroll orchestration (uses a resolver)
+│   ├── PayrollStrategyResolver.java                — Interface: resolves strategy for an employee (DIP)
+│   └── PayrollStrategyRegistry.java                — Default registry/lookup (OCP)
 └── exception/
     ├── EmployeeException.java                      — Base checked exception
     ├── DuplicateEmployeeException.java
@@ -89,7 +91,8 @@ src/test/java/com/example/helloworld/
 └── service/
     ├── EmployeeServiceImplTest.java
     ├── EmployeeValidationServiceTest.java
-    └── PayrollServiceImplTest.java
+    ├── PayrollServiceImplTest.java
+    └── PayrollStrategyRegistryTest.java
 ```
 
 ---
@@ -367,7 +370,7 @@ Throws `ValidationException` on the first rule violation found.
 Selects the correct `PayrollStrategy` for each employee type and delegates the calculation.
 
 ```
-PayrollController  →  PayrollService  →  PayrollStrategy  →  PayrollRecord
+PayrollController  →  PayrollService  →  PayrollStrategyResolver  →  PayrollStrategy  →  PayrollRecord
 ```
 
 | Method                                         | Description                                                               |
@@ -375,12 +378,31 @@ PayrollController  →  PayrollService  →  PayrollStrategy  →  PayrollRecord
 | `processPayroll(recordId, employee, month)`    | Calculates one `PayrollRecord`; throws `PayrollException` on failure      |
 | `processAll(employees, month)`                 | Fault-tolerant batch — failed employees are logged to stderr and skipped  |
 
-**Strategy selection (via `instanceof` chain):**
+**Strategy selection (SOLID refactor):**
 
-| Employee type        | Strategy selected                       | Tax rate |
+`PayrollServiceImpl` depends on `PayrollStrategyResolver` (DIP) and the default implementation
+is a small registry (`PayrollStrategyRegistry`) (OCP). This removes the `instanceof` chain from
+`PayrollServiceImpl`.
+
+Default registration:
+
+| Employee type        | Strategy registered                     | Tax rate |
 |----------------------|-----------------------------------------|----------|
 | `PermanentEmployee`  | `PermanentEmployeePayrollStrategy`      | 20%      |
 | `ContractEmployee`   | `ContractEmployeePayrollStrategy`       | 10%      |
+
+**Extending payroll for a new employee type**
+
+Add a new `PayrollStrategy` implementation and register it:
+
+```java
+PayrollStrategyResolver resolver = new PayrollStrategyRegistry()
+        .register(PermanentEmployee.class, new PermanentEmployeePayrollStrategy())
+        .register(ContractEmployee.class, new ContractEmployeePayrollStrategy())
+        .register(MyNewEmployeeType.class, new MyNewEmployeePayrollStrategy());
+
+PayrollService payrollService = new PayrollServiceImpl(resolver);
+```
 
 ---
 
@@ -417,7 +439,6 @@ Employee (sealed abstract)
     └── ContractEmployee  (final)
 ```
 The `sealed` + `permits` keywords restrict the hierarchy to exactly these two subtypes.
-`PayrollServiceImpl` uses an `instanceof` chain to select the correct strategy per employee type.
 
 ### 📦 Encapsulation
 All fields in `Employee` are `private`. Only mutable fields (`salary`, `status`,
@@ -428,6 +449,7 @@ All fields in `Employee` are `private`. Only mutable fields (`salary`, `status`,
 - `EmployeeService` — *what* the business layer can do, not *how*
 - `EmployeeRepository` — *what* the data layer can do, not *how*
 - `PayrollStrategy` — *what* payroll calculation looks like, not *how*
+- `PayrollStrategyResolver` — *how* a strategy is selected (separate responsibility from payroll orchestration)
 - `ValidationService` — *what* validation means, not *how*
 - `getEmployeeType()` — abstract in `Employee`, forcing each subclass to identify itself
 
@@ -436,8 +458,8 @@ All fields in `Employee` are `private`. Only mutable fields (`salary`, `status`,
 from `Employee` via `super(...)`, extending it with their own fields and behaviour.
 
 ### 🎯 Strategy Pattern
-`PayrollStrategy` is selected at runtime based on the concrete employee type.
-New employee types only require a new strategy implementation — no changes to `PayrollServiceImpl`.
+`PayrollStrategy` is selected at runtime. With the resolver/registry in place, new employee
+types can be supported by registration without modifying `PayrollServiceImpl`.
 
 ### 🟰 `equals()` and `hashCode()`
 
