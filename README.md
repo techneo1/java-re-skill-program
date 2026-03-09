@@ -1,21 +1,22 @@
-# Java Re-Skill Program — Layered Design with OOP & Creational Design Patterns
+# Java Re-Skill Program — Layered Design with OOP, Creational Patterns & Stream Analytics
 
 ## Overview
 
 This project demonstrates a **layered Java application** applying core OOP concepts in Java 17,
-including **sealed class hierarchies**, **records**, **encapsulation**, **abstraction**, and
-**inheritance**, organised into five distinct layers following the
+including **sealed class hierarchies**, **records**, **stream pipelines**, **encapsulation**,
+**abstraction**, and **inheritance**, organised into five distinct layers following the
 **Controller → Service → Repository** architecture.
 
-It also applies all five **Creational Design Patterns** (GoF) wherever object construction
-complexity justifies them:
+It applies all five **Creational Design Patterns** (GoF) wherever object construction
+complexity justifies them, and adds a dedicated **Salary Analytics** sub-system built
+entirely on Java Stream pipelines (no loops).
 
-| Pattern              | Applied To                                      | Benefit                                                       |
-|----------------------|-------------------------------------------------|---------------------------------------------------------------|
-| **Builder**          | `PermanentEmployee`, `ContractEmployee`         | Readable, step-by-step construction of complex domain objects |
-| **Factory Method**   | `EmployeeFactory`                               | Centralised, named creation hiding concrete subclass details  |
-| **Singleton**        | `PayrollStrategyRegistry`                       | One shared, fully-wired strategy registry across the app      |
-| **Abstract Factory** | `ApplicationFactory` / `InMemoryApplicationFactory` | Wires the entire controller/service/repo stack in one place  |
+| Pattern              | Applied To                                          | Benefit                                                       |
+|----------------------|-----------------------------------------------------|---------------------------------------------------------------|
+| **Builder**          | `PermanentEmployee`, `ContractEmployee`             | Readable, step-by-step construction of complex domain objects |
+| **Factory Method**   | `EmployeeFactory`                                   | Centralised, named creation hiding concrete subclass details  |
+| **Singleton**        | `PayrollStrategyRegistry`                           | One shared, fully-wired strategy registry across the app      |
+| **Abstract Factory** | `ApplicationFactory` / `InMemoryApplicationFactory` | Wires the entire controller/service/repo stack in one place   |
 
 ---
 
@@ -26,14 +27,21 @@ App
  │
  ├── [Abstract Factory] InMemoryApplicationFactory
  │        │
- │        ├── creates EmployeeController  ──►  EmployeeService  ──►  EmployeeRepository
- │        │           │                                                └── InMemoryEmployeeRepository
+ │        ├── creates EmployeeController       ──►  EmployeeService        ──►  EmployeeRepository
+ │        │           │                                                           └── InMemoryEmployeeRepository
  │        │           └── (validates via) ValidationService
  │        │
- │        └── creates PayrollController   ──►  PayrollService   ──►  PayrollStrategyResolver
- │                                                                      └── [Singleton] PayrollStrategyRegistry
- │                                                                            ├── PermanentEmployeePayrollStrategy
- │                                                                            └── ContractEmployeePayrollStrategy
+ │        ├── creates PayrollController        ──►  PayrollService         ──►  PayrollStrategyResolver
+ │        │                                                                        └── [Singleton] PayrollStrategyRegistry
+ │        │                                                                              ├── PermanentEmployeePayrollStrategy
+ │        │                                                                              └── ContractEmployeePayrollStrategy
+ │        │
+ │        └── creates SalaryAnalyticsController ──► SalaryAnalyticsService (stream pipelines)
+ │                    │                               ├── groupByDepartment   → DepartmentSalaryReport per dept
+ │                    │                               ├── topNBySalary        → top-N employees by salary
+ │                    │                               ├── averageSalaryByRole → avg salary keyed by role
+ │                    │                               ├── partitionByStatus   → ACTIVE / INACTIVE buckets
+ │                    └── (fetches employees via) EmployeeService
  │
  └── [Factory Method] EmployeeFactory
           ├── createPermanentEmployee(...)  ──►  [Builder] PermanentEmployee.builder().build()
@@ -51,13 +59,14 @@ The **Controller layer** is the only entry point for callers. It:
 
 ```
 src/main/java/com/example/helloworld/
-├── App.java                                        — Entry point / demo runner
+├── App.java                                        — Entry point / demo runner (Parts 1–5)
 ├── factory/                                        — ★ Abstract Factory
 │   ├── ApplicationFactory.java                     — Abstract factory interface
 │   └── InMemoryApplicationFactory.java             — Concrete factory: in-memory stack
 ├── controller/
-│   ├── EmployeeController.java                     — Handles employee requests; catches all exceptions
-│   └── PayrollController.java                      — Handles payroll requests; catches all exceptions
+│   ├── EmployeeController.java                     — Employee requests; catches all exceptions
+│   ├── PayrollController.java                      — Payroll requests; catches all exceptions
+│   └── SalaryAnalyticsController.java              — Analytics requests; catches all exceptions
 ├── domain/
 │   ├── EmployeeStatus.java                         — Enum: ACTIVE / INACTIVE
 │   ├── Employee.java                               — Sealed abstract base class
@@ -66,6 +75,9 @@ src/main/java/com/example/helloworld/
 │   ├── EmployeeFactory.java                        — ★ Factory Method: named employee creation
 │   ├── Department.java                             — Record (immutable DTO)
 │   ├── PayrollRecord.java                          — Record (immutable DTO)
+│   ├── DepartmentSalaryReport.java                 — Record: per-dept salary aggregates
+│   ├── SalaryAnalyticsReport.java                  — Record: full analytics bundle
+│   ├── EmployeeSummaryDTO.java                     — Record: read-only employee projection
 │   └── payroll/
 │       ├── PayrollStrategy.java                    — Interface: payroll calculation strategy
 │       ├── PermanentEmployeePayrollStrategy.java   — Impl: 20% tax for permanent employees
@@ -83,30 +95,114 @@ src/main/java/com/example/helloworld/
 │   ├── EmployeeValidationService.java              — Impl: business rule validation
 │   ├── PayrollService.java                         — Interface: payroll processing
 │   ├── PayrollServiceImpl.java                     — Payroll orchestration (uses a resolver)
-│   ├── PayrollStrategyResolver.java                — Interface: resolves strategy for an employee (DIP)
-│   └── PayrollStrategyRegistry.java                — ★ Singleton registry/lookup (OCP)
+│   ├── PayrollStrategyResolver.java                — Interface: resolves strategy for an employee
+│   ├── PayrollStrategyRegistry.java                — ★ Singleton registry/lookup
+│   ├── SalaryAnalyticsService.java                 — Interface: stream-based salary analytics
+│   └── SalaryAnalyticsServiceImpl.java             — Impl: all aggregates via stream pipelines
 └── exception/
     ├── EmployeeException.java                      — Base checked exception
     ├── DuplicateEmployeeException.java
     ├── DuplicateEmailException.java
     ├── EmployeeNotFoundException.java
     ├── InvalidEmployeeDataException.java
-    ├── PayrollException.java                       — Payroll calculation failure
-    └── ValidationException.java                   — Business rule violation
+    ├── PayrollException.java
+    └── ValidationException.java
 
 src/test/java/com/example/helloworld/
 ├── controller/
 │   ├── EmployeeControllerTest.java                 — Mockito tests for EmployeeController
 │   └── PayrollControllerTest.java                  — Mockito tests for PayrollController
 ├── domain/
+│   ├── DepartmentSalaryReportTest.java             — Record aggregates + compact constructor
+│   ├── EmployeeSummaryDTOTest.java                 — DTO projection + switch expression
 │   └── payroll/
-│       └── PayrollStrategyTest.java
+│       └── PayrollStrategyTest.java                — Strategy tax calculations
 └── service/
-    ├── EmployeeServiceImplTest.java
-    ├── EmployeeValidationServiceTest.java
-    ├── PayrollServiceImplTest.java
-    └── PayrollStrategyRegistryTest.java
+    ├── EmployeeServiceImplTest.java                — Mockito: delegation + Optional + parametrized
+    ├── EmployeeValidationServiceTest.java          — Validation rules + parametrized inputs
+    ├── PayrollServiceImplTest.java                 — Tax calc, batch, null guards, parametrized
+    ├── PayrollStrategyRegistryTest.java            — Singleton registry resolution
+    └── SalaryAnalyticsServiceImplTest.java         — 55 tests: parametrized, edge cases, Optional
 ```
+
+---
+
+## Salary Analytics (Part 5)
+
+A dedicated analytics sub-system built entirely on **Java Stream pipelines** — no manual
+loops anywhere in the implementation.
+
+### Flow
+
+```
+SalaryAnalyticsController
+    │
+    ├── fetches all employees via  EmployeeService.getAllEmployees()
+    └── delegates computation to   SalaryAnalyticsService
+                                       │
+                                       ├── groupByDepartment   → Collectors.groupingBy + summaryStatistics
+                                       ├── topNBySalary        → sorted().limit()
+                                       ├── averageSalaryByRole → groupingBy + averagingDouble
+                                       └── partitionByStatus   → Collectors.partitioningBy
+```
+
+### `SalaryAnalyticsService` — Interface
+
+All methods receive the employee list as a parameter — the service is **stateless** and
+has no repository dependency, making it trivially testable.
+
+| Method                                       | Returns                              | Stream operation used                            |
+|----------------------------------------------|--------------------------------------|--------------------------------------------------|
+| `groupByDepartment(employees)`               | `Map<Integer, DepartmentSalaryReport>` | `groupingBy` + `summaryStatistics`               |
+| `topNBySalary(employees, n)`                 | `List<Employee>`                     | `sorted(reversed()).limit(n)`                    |
+| `averageSalaryByRole(employees)`             | `Map<String, Double>`                | `groupingBy(role) + averagingDouble(salary)`     |
+| `partitionByStatus(employees)`               | `Map<Boolean, List<Employee>>`       | `partitioningBy(status == ACTIVE)`               |
+| `buildReport(employees)`                     | `SalaryAnalyticsReport`              | Calls all four above; bundles into one record    |
+
+### `SalaryAnalyticsController` — Methods
+
+| Method                  | Returns                              | On error                  |
+|-------------------------|--------------------------------------|---------------------------|
+| `groupByDepartment()`   | `Map<Integer, DepartmentSalaryReport>` | empty map, logs to stderr |
+| `top5BySalary()`        | `List<Employee>`                     | empty list, logs to stderr |
+| `averageSalaryByRole()` | `Map<String, Double>`                | empty map, logs to stderr |
+| `partitionByStatus()`   | `Map<Boolean, List<Employee>>`       | both buckets empty        |
+| `buildReport()`         | `SalaryAnalyticsReport`              | `null`, logs to stderr    |
+
+### `DepartmentSalaryReport` (Record)
+
+Immutable per-department salary summary. Built via `DepartmentSalaryReport.of(deptId, employees)`
+which derives all aggregates from a single stream pass.
+
+| Field           | Type     | Description                    |
+|-----------------|----------|--------------------------------|
+| `departmentId`  | `int`    | Department being reported on   |
+| `headCount`     | `int`    | Number of employees            |
+| `totalSalary`   | `double` | Sum of all salaries            |
+| `averageSalary` | `double` | Mean salary                    |
+| `minSalary`     | `double` | Lowest salary in the group     |
+| `maxSalary`     | `double` | Highest salary in the group    |
+
+### `SalaryAnalyticsReport` (Record)
+
+Bundles all four analytics views into a single immutable snapshot.
+
+| Field               | Type                                   | Description                              |
+|---------------------|----------------------------------------|------------------------------------------|
+| `byDepartment`      | `Map<Integer, DepartmentSalaryReport>` | Per-department salary summary            |
+| `top5BySalary`      | `List<Employee>`                       | Up to 5 highest earners, desc order      |
+| `avgSalaryByRole`   | `Map<String, Double>`                  | Average salary keyed by lower-cased role |
+| `activeEmployees`   | `List<Employee>`                       | Employees with `ACTIVE` status           |
+| `inactiveEmployees` | `List<Employee>`                       | Employees with `INACTIVE` status         |
+
+### Stream Pipeline Design Rules
+
+1. **No loops** — every aggregation uses a stream collector or intermediate operation.
+2. **Unmodifiable results** — all returned collections are wrapped via `toUnmodifiableList()`,
+   `toUnmodifiableMap()`, or `Collections.unmodifiableMap()`.
+3. **Stateless** — `SalaryAnalyticsServiceImpl` has no fields; every method is a pure function.
+4. **Key normalisation** — role keys are `.strip().toLowerCase()` so `"Engineer"`,
+   `"ENGINEER"`, and `"  engineer  "` all collapse to the same bucket.
 
 ---
 
@@ -157,13 +253,11 @@ fields to set — coupling them to implementation details.
 the builder calls behind an intent-revealing API. Callers depend only on `Employee`.
 
 ```java
-// Permanent employee (always ACTIVE, gratuity flag explicit)
 Employee alice = EmployeeFactory.createPermanentEmployee(
         1, "Alice Kumar", "alice@example.com",
         10, "Engineer", 85_000,
         LocalDate.of(2020, 6, 1), true);
 
-// Contract employee (always ACTIVE, dates validated internally)
 Employee carol = EmployeeFactory.createContractEmployee(
         3, "Carol Menon", "carol@example.com",
         20, "Designer", 60_000,
@@ -177,29 +271,26 @@ existing call-sites change.
 
 ### ★ Singleton — `PayrollStrategyRegistry`
 
-**Problem:** `PayrollServiceImpl` created a brand-new `PayrollStrategyRegistry` and
-registered both strategies on every instantiation, wasting allocations and making the
-default registry inconsistent across multiple `PayrollServiceImpl` instances.
+**Problem:** `PayrollServiceImpl` created a brand-new registry and registered both strategies
+on every instantiation, wasting allocations and producing inconsistent state.
 
-**Solution:** `PayrollStrategyRegistry` uses the **Initialization-on-demand holder** idiom —
-the most idiomatic, thread-safe, lazy singleton in Java. A single shared instance is
-pre-wired with both default strategies and accessed via `getInstance()`.
+**Solution:** Uses the **Initialization-on-demand holder** idiom — lazy, thread-safe, no
+synchronisation overhead.
 
 ```java
 // One shared, fully-wired instance — lazy, thread-safe
 PayrollStrategyRegistry registry = PayrollStrategyRegistry.getInstance();
 ```
 
-**Testability is preserved** — the public constructor is kept so unit tests can create
-isolated, empty registries without touching the singleton:
+**Testability is preserved** — the public constructor is kept so unit tests create
+isolated registries without touching the singleton:
 
 ```java
-// In tests — isolated registry, no shared state
 PayrollStrategyRegistry registry = new PayrollStrategyRegistry()
         .register(PermanentEmployee.class, new PermanentEmployeePayrollStrategy());
 ```
 
-**Extending the default registry** for a new employee type:
+**Extending payroll for a new employee type:**
 
 ```java
 PayrollStrategyRegistry.getInstance()
@@ -214,84 +305,72 @@ PayrollStrategyRegistry.getInstance()
 `new` — knowledge of the entire object graph was hardcoded in the entry point.
 
 **Solution:** `ApplicationFactory` defines an interface for creating a **family of related
-objects** (repository → services → controllers). `InMemoryApplicationFactory` is the
-concrete implementation that wires the in-memory stack.
+objects**. `InMemoryApplicationFactory` wires the in-memory stack and caches instances so all
+controllers share the same repository.
 
 ```java
-// One line to bootstrap the entire application stack
 ApplicationFactory factory = new InMemoryApplicationFactory();
 
-EmployeeController empCtrl = factory.createEmployeeController();
-PayrollController  payCtrl = factory.createPayrollController();
+EmployeeController        empCtrl      = factory.createEmployeeController();
+PayrollController         payCtrl      = factory.createPayrollController();
+SalaryAnalyticsController analyticsCtrl = factory.createSalaryAnalyticsController();
 ```
 
-**Swapping the entire stack** (e.g. to a database-backed implementation) requires only
-changing the factory:
+**Swapping the entire stack** requires changing only the factory:
 
 ```java
-// Drop-in replacement — no other code changes
-ApplicationFactory factory = new DatabaseApplicationFactory();
+ApplicationFactory factory = new DatabaseApplicationFactory(); // drop-in
 ```
 
-`InMemoryApplicationFactory` caches created instances so that all controllers and services
-share the **same** repository instance within one factory context.
-
-| Method                         | Returns                  | Notes                                   |
-|--------------------------------|--------------------------|-----------------------------------------|
-| `createEmployeeRepository()`   | `EmployeeRepository`     | Cached — same instance per factory      |
-| `createEmployeeService()`      | `EmployeeService`        | Cached — wired to the shared repository |
-| `createValidationService()`    | `ValidationService`      | Cached                                  |
-| `createPayrollService()`       | `PayrollService`         | Cached — uses singleton registry        |
-| `createEmployeeController()`   | `EmployeeController`     | New instance each call                  |
-| `createPayrollController()`    | `PayrollController`      | New instance each call                  |
+| Method                               | Returns                      | Notes                                   |
+|--------------------------------------|------------------------------|-----------------------------------------|
+| `createEmployeeRepository()`         | `EmployeeRepository`         | Cached — same instance per factory      |
+| `createEmployeeService()`            | `EmployeeService`            | Cached — wired to the shared repository |
+| `createValidationService()`          | `ValidationService`          | Cached                                  |
+| `createPayrollService()`             | `PayrollService`             | Cached — uses singleton registry        |
+| `createSalaryAnalyticsService()`     | `SalaryAnalyticsService`     | Cached — stateless service              |
+| `createEmployeeController()`         | `EmployeeController`         | New instance each call                  |
+| `createPayrollController()`          | `PayrollController`          | New instance each call                  |
+| `createSalaryAnalyticsController()`  | `SalaryAnalyticsController`  | New instance each call                  |
 
 ---
 
 ## Controller Layer
 
-The controller layer sits at the top of the stack. It is the **only** layer that callers
-(e.g. `App.java`) interact with directly.
-
 ### `EmployeeController`
 
-Wires together `EmployeeService` and `ValidationService`. Validates every mutating
-request before it reaches the service. All checked exceptions are caught internally
-and printed to stderr — callers never need a `try/catch`.
-
-| Method                             | Behaviour                                                                  |
-|------------------------------------|----------------------------------------------------------------------------|
-| `addEmployee(Employee)`            | Validates → adds; handles `ValidationException`, `DuplicateEmployeeException`, `DuplicateEmailException` |
-| `updateEmployee(Employee)`         | Validates → updates; handles `ValidationException`, `EmployeeNotFoundException`, `DuplicateEmailException` |
-| `removeEmployee(int id)`           | Removes; handles `EmployeeNotFoundException`                               |
-| `getById(int id)`                  | Returns `Optional<Employee>`                                               |
-| `getByEmail(String)`               | Returns `Optional<Employee>`                                               |
-| `getAllEmployees()`                 | Returns all employees                                                      |
-| `getByDepartment(int)`             | Returns employees in given department                                      |
-| `getByStatus(EmployeeStatus)`      | Returns employees matching status                                          |
-| `getByRole(String)`                | Case-insensitive partial match on role                                     |
-| `getBySalaryRange(double, double)` | Returns employees in range; returns empty list on `InvalidEmployeeDataException` |
-| `countEmployees()`                 | Total number of employees                                                  |
-| `totalSalary()`                    | Sum of all salaries                                                        |
-| `averageSalary()`                  | Average salary                                                             |
+| Method                             | Behaviour                                                                                                       |
+|------------------------------------|-----------------------------------------------------------------------------------------------------------------|
+| `addEmployee(Employee)`            | Validates → adds; handles `ValidationException`, `DuplicateEmployeeException`, `DuplicateEmailException`       |
+| `updateEmployee(Employee)`         | Validates → updates; handles `ValidationException`, `EmployeeNotFoundException`, `DuplicateEmailException`     |
+| `removeEmployee(int id)`           | Removes; handles `EmployeeNotFoundException`                                                                    |
+| `getById(int id)`                  | Returns `Optional<Employee>`                                                                                    |
+| `getByEmail(String)`               | Returns `Optional<Employee>`                                                                                    |
+| `getAllEmployees()`                 | Returns all employees                                                                                           |
+| `getByDepartment(int)`             | Returns employees in given department                                                                           |
+| `getByStatus(EmployeeStatus)`      | Returns employees matching status                                                                               |
+| `getByRole(String)`                | Case-insensitive partial match on role                                                                          |
+| `getBySalaryRange(double, double)` | Returns employees in range; returns empty list on `InvalidEmployeeDataException`                                |
+| `countEmployees()`                 | Total number of employees                                                                                       |
+| `totalSalary()`                    | Sum of all salaries                                                                                             |
+| `averageSalary()`                  | Average salary                                                                                                  |
 
 ### `PayrollController`
 
-Wraps `PayrollService`. Exceptions from payroll calculation are caught and logged to
-stderr — callers never need a `try/catch`.
+| Method                                      | Behaviour                                                                  |
+|---------------------------------------------|----------------------------------------------------------------------------|
+| `processPayroll(recordId, employee, month)` | Processes one employee; returns `null` on `PayrollException`               |
+| `processAll(employees, month)`              | Fault-tolerant batch; returns only successfully processed records          |
 
-| Method                                        | Behaviour                                                                   |
-|-----------------------------------------------|-----------------------------------------------------------------------------|
-| `processPayroll(recordId, employee, month)`   | Processes one employee; returns `null` (not a throw) on `PayrollException`  |
-| `processAll(employees, month)`                | Fault-tolerant batch; returns successfully processed records                |
+### `SalaryAnalyticsController`
+
+See [Salary Analytics](#salary-analytics-part-5) section above.
 
 ---
 
 ## Domain Layer
 
 ### `Employee` (Sealed Abstract Class)
-
-The base class for all employee types. Uses a **sealed class hierarchy** to restrict subtypes
-to only `PermanentEmployee` and `ContractEmployee`.
 
 | Field          | Type             | Description                        |
 |----------------|------------------|------------------------------------|
@@ -304,10 +383,9 @@ to only `PermanentEmployee` and `ContractEmployee`.
 | `status`       | `EmployeeStatus` | `ACTIVE` or `INACTIVE` (mutable)   |
 | `joiningDate`  | `LocalDate`      | Date the employee joined           |
 
-- **Abstract method:** `getEmployeeType()` — forces each subclass to identify itself.
+- **Sealed hierarchy** — only `PermanentEmployee` and `ContractEmployee` are permitted.
 - **`equals()` / `hashCode()`** — identity based on `id`.
-
----
+- **`getEmployeeType()`** — abstract; forces each subclass to identify itself.
 
 ### `PermanentEmployee` *(extends Employee)*
 
@@ -315,158 +393,69 @@ to only `PermanentEmployee` and `ContractEmployee`.
 |--------------------|-----------|----------------------------------------------|
 | `gratuityEligible` | `boolean` | Whether the employee qualifies for gratuity  |
 
-- `getEmployeeType()` returns `"PermanentEmployee"`.
-- **Builder:** `PermanentEmployee.builder()` — see [Builder pattern](#-builder----permanentemployee--contractemployee) above.
-
----
-
 ### `ContractEmployee` *(extends Employee)*
 
-| Additional Field  | Type        | Description                         |
-|-------------------|-------------|-------------------------------------|
-| `contractEndDate` | `LocalDate` | Date the contract expires (mutable) |
+| Additional Field  | Type        | Description                              |
+|-------------------|-------------|------------------------------------------|
+| `contractEndDate` | `LocalDate` | Date the contract expires (mutable)      |
 
-- `getEmployeeType()` returns `"ContractEmployee"`.
 - `isExpired()` — returns `true` if the contract has passed today's date.
-- **Builder:** `ContractEmployee.builder()` — see [Builder pattern](#-builder----permanentemployee--contractemployee) above.
 
----
+### `EmployeeSummaryDTO` (Record)
 
-### `Department` (Record — Immutable DTO)
+Read-only projection of an `Employee` for display/API responses. Built via
+`EmployeeSummaryDTO.from(employee)` which uses a **switch expression** over the sealed
+hierarchy to derive `employeeType` and `extraInfo` — exhaustive, no default needed.
 
-| Field      | Type     | Description              |
-|------------|----------|--------------------------|
-| `id`       | `int`    | Unique department ID     |
-| `name`     | `String` | Department name          |
-| `location` | `String` | Physical/office location |
+| Field          | Type     | Description                                            |
+|----------------|----------|--------------------------------------------------------|
+| `id`           | `int`    | Employee id                                            |
+| `name`         | `String` | Full name                                              |
+| `role`         | `String` | Job role                                               |
+| `departmentId` | `int`    | Department                                             |
+| `salary`       | `double` | Current salary                                         |
+| `status`       | `String` | `"ACTIVE"` or `"INACTIVE"`                            |
+| `employeeType` | `String` | `"PERMANENT"` or `"CONTRACT"`                         |
+| `extraInfo`    | `String` | `"gratuityEligible=true"` or `"contractEnds=<date>"`  |
 
----
+### Other Domain Records
 
-### `EmployeeStatus` (Enum)
-
-```java
-public enum EmployeeStatus {
-    ACTIVE,
-    INACTIVE
-}
-```
-
----
-
-### `PayrollRecord` (Record — Immutable DTO)
-
-| Field                | Type            | Description                               |
-|----------------------|-----------------|-------------------------------------------|
-| `id`                 | `int`           | Unique payroll record ID                  |
-| `employeeId`         | `int`           | Reference to Employee                     |
-| `grossSalary`        | `double`        | Total salary before deductions            |
-| `taxAmount`          | `double`        | Tax deducted                              |
-| `netSalary`          | `double`        | Take-home pay (`grossSalary - taxAmount`) |
-| `payrollMonth`       | `LocalDate`     | Month/year the payroll covers             |
-| `processedTimestamp` | `LocalDateTime` | Exact date-time the payroll was processed |
-
-- Factory method `PayrollRecord.of(...)` calculates `netSalary` automatically.
-
----
+| Record                  | Purpose                                               |
+|-------------------------|-------------------------------------------------------|
+| `Department`            | Immutable department DTO (id, name, location)         |
+| `PayrollRecord`         | Immutable payroll result (gross, tax, net, timestamp) |
+| `DepartmentSalaryReport`| Per-dept salary aggregates — see analytics section    |
+| `SalaryAnalyticsReport` | Full analytics bundle — see analytics section         |
 
 ### Payroll Strategy (`domain/payroll/`)
 
-Implements the **Strategy pattern** — the calculation algorithm is selected at runtime based
-on the concrete employee type.
-
-```
-PayrollStrategy                       (interface)
-    ├── PermanentEmployeePayrollStrategy   — tax rate 20%
-    └── ContractEmployeePayrollStrategy    — tax rate 10%; rejects expired contracts
-```
-
-#### `PayrollStrategy` (Interface)
-
-```java
-PayrollRecord calculate(int recordId, Employee employee, LocalDate payrollMonth)
-        throws PayrollException;
-```
-
-#### `PermanentEmployeePayrollStrategy`
-- Tax rate: **20%** of gross salary.
-- Throws `PayrollException` if passed a non-`PermanentEmployee`.
-
-#### `ContractEmployeePayrollStrategy`
-- Tax rate: **10%** of gross salary.
-- Throws `PayrollException` if the contract has expired (`isExpired() == true`).
-- Throws `PayrollException` if passed a non-`ContractEmployee`.
+| Strategy                              | Tax rate | Guard                          |
+|---------------------------------------|----------|--------------------------------|
+| `PermanentEmployeePayrollStrategy`    | 20%      | Rejects non-`PermanentEmployee`|
+| `ContractEmployeePayrollStrategy`     | 10%      | Rejects expired contracts      |
 
 ---
 
 ## Repository Layer
 
-### `EmployeeRepository` (Interface)
+### `InMemoryEmployeeRepository`
 
-Defines the full data-access contract — all CRUD operations, queries, and aggregations.
+Collections-backed implementation with **secondary indexes** for O(1) lookups.
 
-```
-EmployeeRepository                (interface — repository/)
-    └── InMemoryEmployeeRepository    (implementation — repository/inmemory/)
-```
+| Index             | Type                                   | Purpose                                   |
+|-------------------|----------------------------------------|-------------------------------------------|
+| `store`           | `HashMap<EmployeeKey, Employee>`       | Primary store                             |
+| `idIndex`         | `HashMap<Integer, EmployeeKey>`        | id → key reverse index                    |
+| `emailIndex`      | `HashMap<String, Integer>`             | email → id (O(1) uniqueness checks)       |
+| `departmentIndex` | `HashMap<DepartmentKey, Set<Integer>>` | dept → Set of ids (O(1) dept queries)     |
 
 ### `EmployeeKey` (Custom HashMap Key)
 
-| Rule         | How it's met                                                 |
-|--------------|--------------------------------------------------------------|
-| `equals()`   | Two keys are equal when **both** `id` **and** `email` match  |
-| `hashCode()` | Uses the same two fields — consistent with `equals()`        |
-| Immutability | Both fields are `final` — hash never changes after insertion |
+Hand-written `equals()` + `hashCode()` over `id` + `email`. Both fields are `final`.
 
 ### `DepartmentKey` (Record-based HashMap Key)
 
-A **Java Record** used as a `HashMap` key — `equals()`, `hashCode()`, and immutability are
-all auto-generated by the compiler.
-
----
-
-## In-Memory Repository
-
-### `InMemoryEmployeeRepository`
-
-A collections-backed, thread-unsafe implementation of `EmployeeRepository` with **secondary
-indexes** for O(1) lookups.
-
-#### Internal Collections
-
-| Field             | Type                                   | Purpose                                   |
-|-------------------|----------------------------------------|-------------------------------------------|
-| `store`           | `HashMap<EmployeeKey, Employee>`       | Primary store — keyed by composite key    |
-| `idIndex`         | `HashMap<Integer, EmployeeKey>`        | id → key reverse index                    |
-| `emailIndex`      | `HashMap<String, Integer>`             | email → id — O(1) email uniqueness checks |
-| `departmentIndex` | `HashMap<DepartmentKey, Set<Integer>>` | dept → Set of ids — O(1) dept queries     |
-
-#### CRUD Operations
-
-| Method     | Description                                              |
-|------------|----------------------------------------------------------|
-| `add`      | Adds employee; throws if `id` or `email` already exists  |
-| `update`   | Replaces by `id`; maintains all secondary indexes        |
-| `remove`   | Removes by `id`; cleans up all indexes                   |
-| `findById` | Returns `Optional<Employee>` — O(1)                      |
-| `findAll`  | Returns unmodifiable snapshot of all employees           |
-
-#### Query Operations
-
-| Method                  | Description                                      |
-|-------------------------|--------------------------------------------------|
-| `findByDepartment(int)` | Uses `departmentIndex` — O(1) index lookup       |
-| `findByStatus`          | Stream filter over all employees                 |
-| `findByRole`            | Case-insensitive partial match via stream filter |
-| `findByEmail`           | Uses `emailIndex` — O(1) lookup                  |
-| `findBySalaryRange`     | Stream filter with range check                   |
-
-#### Aggregations
-
-| Method            | Description                                       |
-|-------------------|---------------------------------------------------|
-| `count()`         | Total number of employees                         |
-| `totalSalary()`   | Sum of all employee salaries                      |
-| `averageSalary()` | Average salary; returns `0.0` if store is empty   |
+A Java Record — `equals()`, `hashCode()`, and immutability auto-generated by the compiler.
 
 ---
 
@@ -474,97 +463,121 @@ indexes** for O(1) lookups.
 
 ### `EmployeeService` / `EmployeeServiceImpl`
 
-Defines the business-facing CRUD and query contract. Receives an `EmployeeRepository` via
-constructor injection and delegates every operation to it.
-
-```
-EmployeeController  →  EmployeeService  →  EmployeeRepository  →  InMemoryEmployeeRepository
-```
-
-| Method                             | Description                                          |
-|------------------------------------|------------------------------------------------------|
-| `addEmployee(Employee)`            | Adds employee; throws on duplicate id or email       |
-| `updateEmployee(Employee)`         | Updates employee; throws if not found or email taken |
-| `removeEmployee(int id)`           | Removes employee by id; throws if not found          |
-| `getById(int id)`                  | Returns `Optional<Employee>`                         |
-| `getAllEmployees()`                 | Returns all employees                                |
-| `getByDepartment(int)`             | Returns employees in the given department            |
-| `getByStatus(EmployeeStatus)`      | Returns employees matching the given status          |
-| `getByRole(String)`                | Case-insensitive partial match on role               |
-| `getByEmail(String)`               | Returns `Optional<Employee>` by email                |
-| `getBySalaryRange(double, double)` | Returns employees within the salary range            |
-| `countEmployees()`                 | Total number of employees                            |
-| `totalSalary()`                    | Sum of all employee salaries                         |
-| `averageSalary()`                  | Average salary; returns `0.0` if no employees        |
-
----
+Thin delegation layer between controller and repository. Every method maps 1-to-1 to a
+repository call, providing an abstraction boundary so the controller never sees
+repository types.
 
 ### `ValidationService` / `EmployeeValidationService`
 
-Validates an `Employee` against business rules before it is persisted.
-Called by `EmployeeController` before every mutating operation.
-Throws `ValidationException` on the first rule violation found.
+Called by `EmployeeController` before every mutating operation. Throws `ValidationException`
+on the first rule violation.
 
-| Rule checked                             | Exception message                               |
-|------------------------------------------|-------------------------------------------------|
-| `id > 0`                                 | must be positive                                |
-| `name` not blank                         | must not be blank                               |
-| `email` not blank and contains `@`       | must not be blank / must contain '@'            |
-| `salary >= 0`                            | must not be negative                            |
-| `status` not null and not `INACTIVE`     | cannot add or update an INACTIVE employee       |
-| `departmentId > 0`                       | must be positive                                |
-| `ContractEmployee.isExpired() == false`  | contract has already expired                    |
-
----
+| Rule                                    | Field rejected          |
+|-----------------------------------------|-------------------------|
+| `email` must contain `@`               | `email`                 |
+| `status` must not be `INACTIVE`        | `status`                |
+| `ContractEmployee` must not be expired | `contractEndDate`       |
 
 ### `PayrollService` / `PayrollServiceImpl`
 
-Selects the correct `PayrollStrategy` for each employee type and delegates the calculation.
+Orchestrates payroll using the Singleton `PayrollStrategyRegistry`. The no-arg constructor
+uses `getInstance()`; the injected constructor is kept for testing.
 
-```
-PayrollController  →  PayrollService  →  PayrollStrategyResolver  →  PayrollStrategy  →  PayrollRecord
-```
+### `SalaryAnalyticsService` / `SalaryAnalyticsServiceImpl`
 
-| Method                                         | Description                                                               |
-|------------------------------------------------|---------------------------------------------------------------------------|
-| `processPayroll(recordId, employee, month)`    | Calculates one `PayrollRecord`; throws `PayrollException` on failure      |
-| `processAll(employees, month)`                 | Fault-tolerant batch — failed employees are logged to stderr and skipped  |
-
-`PayrollServiceImpl()` (no-arg) uses the **Singleton** `PayrollStrategyRegistry.getInstance()`
-as its default resolver. The injected-constructor overload is kept for testing.
-
-Default registration:
-
-| Employee type        | Strategy registered                     | Tax rate |
-|----------------------|-----------------------------------------|----------|
-| `PermanentEmployee`  | `PermanentEmployeePayrollStrategy`      | 20%      |
-| `ContractEmployee`   | `ContractEmployeePayrollStrategy`       | 10%      |
-
-**Extending payroll for a new employee type:**
+All aggregates are computed via **stream pipelines** — no loops.
 
 ```java
-// Register on the singleton — available app-wide immediately
-PayrollStrategyRegistry.getInstance()
-        .register(MyNewEmployeeType.class, new MyNewEmployeePayrollStrategy());
+// groupByDepartment — Collectors.groupingBy + summaryStatistics
+employees.stream()
+    .collect(groupingBy(Employee::getDepartmentId))
+    .entrySet().stream()
+    .collect(toUnmodifiableMap(Entry::getKey,
+             e -> DepartmentSalaryReport.of(e.getKey(), e.getValue())));
+
+// topNBySalary — sorted + limit
+employees.stream()
+    .sorted(comparingDouble(Employee::getSalary).reversed())
+    .limit(n)
+    .collect(toUnmodifiableList());
+
+// averageSalaryByRole — groupingBy + averagingDouble
+employees.stream()
+    .collect(groupingBy(e -> e.getRole().strip().toLowerCase(),
+             averagingDouble(Employee::getSalary)));
+
+// partitionByStatus — partitioningBy (two-bucket specialised collector)
+employees.stream()
+    .collect(partitioningBy(e -> e.getStatus() == ACTIVE,
+             toUnmodifiableList()));
 ```
 
 ---
 
 ## Exception Layer
 
-All exceptions extend `EmployeeException` (checked), allowing callers to catch either
-the broad base type or a specific subtype.
-The **Controller layer** catches all of these — they never propagate to `App.java`.
-
 ```
-EmployeeException  (base)
+EmployeeException  (base checked)
     ├── DuplicateEmployeeException   — id already exists on add
     ├── DuplicateEmailException      — email already taken on add/update
     ├── EmployeeNotFoundException    — id/email not found on update/remove/find
     ├── InvalidEmployeeDataException — field value fails a repository-level rule
-    ├── PayrollException             — payroll calculation failure (expired contract, wrong type)
-    └── ValidationException          — employee fails a business validation rule
+    ├── PayrollException             — payroll calculation failure
+    └── ValidationException          — employee fails a business rule
 ```
+
+All exceptions are caught by the **Controller layer** — they never propagate to `App.java`.
+
+---
+
+## Testing
+
+**193 tests — 0 failures.** Three test patterns applied consistently across all test classes:
+
+### 1. Parameterized Tests (`@ParameterizedTest`)
+
+| Test class                       | Parameterized coverage                                                   |
+|----------------------------------|--------------------------------------------------------------------------|
+| `SalaryAnalyticsServiceImplTest` | `@CsvSource` for dept aggregates, top-N size, rank order, avg by role, partition counts |
+| `PayrollServiceImplTest`         | `@CsvSource` for gross/tax/net across salary values for both employee types |
+| `EmployeeServiceImplTest`        | `@EnumSource` for all statuses, `@ValueSource` for role strings, `@CsvSource` for salary ranges |
+| `EmployeeValidationServiceTest`  | `@ValueSource` for invalid emails and valid salary boundaries, `@CsvSource` for exception fields |
+| `DepartmentSalaryReportTest`     | `@CsvSource` for min/avg/max across salary pairs                         |
+
+### 2. Stream Edge-Case Tests
+
+| Edge case                                      | Test class                       |
+|------------------------------------------------|----------------------------------|
+| All employees have equal salary (tied sort)    | `SalaryAnalyticsServiceImplTest` |
+| `n=1`, `n=0`, negative `n` for `topNBySalary` | `SalaryAnalyticsServiceImplTest` |
+| Whitespace role names collapse to same key     | `SalaryAnalyticsServiceImplTest` |
+| Single-employee dept: min == max == avg        | `SalaryAnalyticsServiceImplTest` |
+| All-INACTIVE input: active bucket is empty     | `SalaryAnalyticsServiceImplTest` |
+| Single-employee report: every count is 0 or 1 | `SalaryAnalyticsServiceImplTest` |
+| 8-employee list: top5 capped at 5              | `SalaryAnalyticsServiceImplTest` |
+| Result lists are unmodifiable                  | `SalaryAnalyticsServiceImplTest` |
+| Empty input throughout all methods             | `SalaryAnalyticsServiceImplTest` |
+
+### 3. `Optional` Usage Validation
+
+`Optional.ofNullable(map.get(key))` is used in tests instead of raw `.get()` so that:
+- **Present values** are asserted with `.isPresent()` / `.orElseThrow()`
+- **Absent values** are asserted with `.isEmpty()`
+- Failure messages name the missing key explicitly
+
+```java
+// Present — fail with a meaningful message if key is absent
+DepartmentSalaryReport dept10 =
+        Optional.ofNullable(service.groupByDepartment(all).get(10))
+                .orElseThrow(() -> new AssertionError("dept 10 missing"));
+
+// Absent — assert the key truly is not in the map
+Optional<Double> ceo = Optional.ofNullable(service.averageSalaryByRole(all).get("ceo"));
+assertTrue(ceo.isEmpty(), "'ceo' role must not be present");
+```
+
+Applied in: `SalaryAnalyticsServiceImplTest` (dept lookups, role lookups, report
+field lookups), `EmployeeServiceImplTest` (`getById`, `getByEmail` Optional chain assertions).
 
 ---
 
@@ -574,10 +587,9 @@ EmployeeException  (base)
 See the dedicated [Creational Design Patterns](#creational-design-patterns) section above.
 
 ### 🏛️ Layered Architecture (Controller → Service → Repository)
-Each layer has a **single responsibility** and communicates only with the layer directly below it:
-- **Controller** — handles input, validation, and exception boundaries
-- **Service** — orchestrates business logic, unaware of HTTP/CLI concerns
-- **Repository** — manages data persistence, unaware of business rules
+- **Controller** — input, validation, exception boundaries
+- **Service** — business logic, orchestration
+- **Repository** — data persistence, indexing
 
 ### 🔒 Sealed Class Hierarchy
 ```
@@ -585,60 +597,61 @@ Employee (sealed abstract)
     ├── PermanentEmployee (final)
     └── ContractEmployee  (final)
 ```
-The `sealed` + `permits` keywords restrict the hierarchy to exactly these two subtypes.
+The `sealed` + `permits` keywords restrict the hierarchy to exactly these two subtypes,
+enabling **exhaustive switch expressions** without a `default` case.
 
 ### 📦 Encapsulation
 All fields in `Employee` are `private`. Only mutable fields (`salary`, `status`,
 `contractEndDate`) expose setters, each with validation guards.
 
 ### 🎭 Abstraction
-- `EmployeeController` — *what* callers can request, hiding service/exception details
-- `EmployeeService` — *what* the business layer can do, not *how*
-- `EmployeeRepository` — *what* the data layer can do, not *how*
-- `PayrollStrategy` — *what* payroll calculation looks like, not *how*
-- `PayrollStrategyResolver` — *how* a strategy is selected (separate responsibility from payroll orchestration)
-- `ValidationService` — *what* validation means, not *how*
-- `ApplicationFactory` — *what* objects to create, not *how* they are wired
-- `getEmployeeType()` — abstract in `Employee`, forcing each subclass to identify itself
+Every interface (`EmployeeService`, `EmployeeRepository`, `PayrollStrategy`,
+`PayrollStrategyResolver`, `ValidationService`, `SalaryAnalyticsService`,
+`ApplicationFactory`) defines *what* a layer can do, not *how*.
 
 ### 🧬 Inheritance
-`PermanentEmployee` and `ContractEmployee` reuse all common fields and validation logic
-from `Employee` via `super(...)`, extending it with their own fields and behaviour.
+`PermanentEmployee` and `ContractEmployee` reuse all common fields and constructor
+validation from `Employee` via `super(...)`, extending it with their own fields.
 
 ### 🎯 Strategy Pattern
-`PayrollStrategy` is selected at runtime. With the resolver/registry in place, new employee
-types can be supported by registration without modifying `PayrollServiceImpl`.
+`PayrollStrategy` is selected at runtime. New employee types can be supported by
+registering a new strategy — `PayrollServiceImpl` never changes.
+
+### 📋 Records (DTOs & Keys)
+`Department`, `PayrollRecord`, `DepartmentSalaryReport`, `SalaryAnalyticsReport`,
+`EmployeeSummaryDTO`, and `DepartmentKey` are **Java Records** — immutable by design,
+with auto-generated `equals()`, `hashCode()`, `toString()`, and accessors.
 
 ### 🟰 `equals()` and `hashCode()`
 
-| Class               | Strategy                                  |
-|---------------------|-------------------------------------------|
-| `Employee`          | Identity by `id`                          |
-| `PermanentEmployee` | Parent equality + `gratuityEligible`      |
-| `ContractEmployee`  | Parent equality + `contractEndDate`       |
-| `Department`        | Auto-generated by Record (all fields)     |
-| `PayrollRecord`     | Auto-generated by Record (all fields)     |
-| `EmployeeKey`       | Hand-written — `id` + `email`             |
-| `DepartmentKey`     | Auto-generated by Record — `id` only      |
-
-### 📋 Records (DTOs & Keys)
-`Department`, `PayrollRecord`, and `DepartmentKey` are **immutable**. Java Records
-auto-generate `equals()`, `hashCode()`, `toString()`, and accessor methods,
-reducing boilerplate while enforcing immutability.
+| Class                | Strategy                                       |
+|----------------------|------------------------------------------------|
+| `Employee`           | Identity by `id`                               |
+| `PermanentEmployee`  | Parent equality + `gratuityEligible`           |
+| `ContractEmployee`   | Parent equality + `contractEndDate`            |
+| `Department`         | Auto-generated by Record (all fields)          |
+| `PayrollRecord`      | Auto-generated by Record (all fields)          |
+| `DepartmentSalaryReport` | Auto-generated by Record (all fields)      |
+| `SalaryAnalyticsReport`  | Auto-generated by Record (all fields)      |
+| `EmployeeKey`        | Hand-written — `id` + `email`                  |
+| `DepartmentKey`      | Auto-generated by Record — `id` only           |
 
 ---
 
 ## Build & Run
 
 ```bash
-# Compile
+# Compile (preview features enabled for sealed switch expressions)
 mvn compile
 
-# Run tests
+# Run all 193 tests
 mvn test
 
-# Run main class
+# Run the App demo (Parts 1–5)
 mvn exec:java
 ```
 
-> Requires **Java 17+** and **Maven 3.x**.
+> Requires **Java 17** and **Maven 3.x**.
+> `--enable-preview` is configured in `pom.xml` for all three plugins
+> (`maven-compiler-plugin`, `maven-surefire-plugin`, `exec-maven-plugin`)
+> to support pattern matching in `switch` expressions over sealed hierarchies.
