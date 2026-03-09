@@ -2,11 +2,15 @@ package com.example.helloworld.service;
 
 import com.example.helloworld.domain.*;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.LocalDate;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -54,6 +58,15 @@ class SalaryAnalyticsServiceImplTest {
         all = List.of(alice, bob, carol, dave, eve);
     }
 
+    // ── helper ─────────────────────────────────────────��──────────────────────
+
+    /** Builds a minimal ACTIVE PermanentEmployee for ad-hoc parameterised tests. */
+    private static PermanentEmployee emp(int id, int deptId, String role, double salary,
+                                         EmployeeStatus status) {
+        return new PermanentEmployee(id, "Name" + id, "e" + id + "@x.com",
+                deptId, role, salary, status, LocalDate.of(2020, 1, 1), true);
+    }
+
     // ── groupByDepartment ─────────────────────────────────────────────────────
 
     @Test
@@ -92,6 +105,56 @@ class SalaryAnalyticsServiceImplTest {
         assertTrue(service.groupByDepartment(Collections.emptyList()).isEmpty());
     }
 
+    @Test
+    @DisplayName("groupByDepartment — result map does not contain absent department")
+    void groupByDepartment_absentDepartmentIsEmpty() {
+        // dept 99 was never added — Optional-style: map lookup returns empty
+        Optional<DepartmentSalaryReport> absent =
+                Optional.ofNullable(service.groupByDepartment(all).get(99));
+        assertTrue(absent.isEmpty(), "dept 99 must not be in the report");
+    }
+
+    @Test
+    @DisplayName("groupByDepartment — result map contains every expected department (Optional present)")
+    void groupByDepartment_expectedDepartmentsArePresent() {
+        Map<Integer, DepartmentSalaryReport> result = service.groupByDepartment(all);
+        // validate with Optional.ofNullable so the assertion message is meaningful
+        for (int deptId : List.of(10, 20, 30)) {
+            Optional<DepartmentSalaryReport> opt = Optional.ofNullable(result.get(deptId));
+            assertTrue(opt.isPresent(), "dept " + deptId + " must be present");
+        }
+    }
+
+    @ParameterizedTest(name = "dept={0}  expectedHeadCount={1}  expectedAvg={2}")
+    @DisplayName("groupByDepartment — parameterised aggregates per department")
+    @CsvSource({
+            "10,  2,  87500.0",
+            "20,  2,  85000.0",
+            "30,  1,  55000.0"
+    })
+    void groupByDepartment_parameterisedAggregates(int deptId, int expectedHeadCount,
+                                                    double expectedAvg) {
+        DepartmentSalaryReport report =
+                Optional.ofNullable(service.groupByDepartment(all).get(deptId))
+                        .orElseThrow(() -> new AssertionError("dept " + deptId + " missing"));
+        assertEquals(expectedHeadCount, report.headCount(),     0.01, "headCount");
+        assertEquals(expectedAvg,       report.averageSalary(), 0.01, "avg");
+    }
+
+    @Test
+    @DisplayName("groupByDepartment — single-employee department: min == max == avg")
+    void groupByDepartment_singleEmployeeDept_minMaxAvgEqual() {
+        // dept 30 has only eve (55_000)
+        DepartmentSalaryReport dept30 =
+                Optional.ofNullable(service.groupByDepartment(all).get(30))
+                        .orElseThrow();
+        assertAll(
+                () -> assertEquals(55_000, dept30.minSalary(),     0.01),
+                () -> assertEquals(55_000, dept30.maxSalary(),     0.01),
+                () -> assertEquals(55_000, dept30.averageSalary(), 0.01)
+        );
+    }
+
     // ── topNBySalary ──────────────────────────────────────────────────────────
 
     @Test
@@ -124,6 +187,62 @@ class SalaryAnalyticsServiceImplTest {
         assertTrue(service.topNBySalary(Collections.emptyList(), 5).isEmpty());
     }
 
+    @ParameterizedTest(name = "n={0} → resultSize={1}")
+    @DisplayName("topNBySalary — parameterised: result size is min(n, listSize)")
+    @CsvSource({
+            "1, 1",
+            "2, 2",
+            "5, 5",
+            "6, 5",
+            "100, 5"
+    })
+    void topNBySalary_parameterisedResultSize(int n, int expectedSize) {
+        assertEquals(expectedSize, service.topNBySalary(all, n).size());
+    }
+
+    @ParameterizedTest(name = "rank={0} → employeeId={1}")
+    @DisplayName("topNBySalary — parameterised: descending salary order")
+    @CsvSource({
+            // dave=110k, bob=90k, alice=85k, carol=60k, eve=55k
+            "0, 4",
+            "1, 2",
+            "2, 1",
+            "3, 3",
+            "4, 5"
+    })
+    void topNBySalary_parameterisedOrder(int rank, int expectedId) {
+        List<Employee> top5 = service.topNBySalary(all, 5);
+        assertEquals(expectedId, top5.get(rank).getId(),
+                "rank " + rank + " should be employeeId=" + expectedId);
+    }
+
+    @Test
+    @DisplayName("topNBySalary — n=1 returns only the single highest earner")
+    void topNBySalary_nOne_returnsSingleHighest() {
+        List<Employee> result = service.topNBySalary(all, 1);
+        assertEquals(1,           result.size());
+        assertEquals(dave.getId(), result.get(0).getId());
+    }
+
+    @Test
+    @DisplayName("topNBySalary — all employees have equal salary: returns n employees (stable)")
+    void topNBySalary_tiedSalaries_returnsN() {
+        List<Employee> tied = List.of(
+                emp(10, 10, "Engineer", 80_000, EmployeeStatus.ACTIVE),
+                emp(11, 10, "Engineer", 80_000, EmployeeStatus.ACTIVE),
+                emp(12, 10, "Engineer", 80_000, EmployeeStatus.ACTIVE)
+        );
+        List<Employee> result = service.topNBySalary(tied, 2);
+        assertEquals(2, result.size(), "should still return exactly 2");
+        result.forEach(e -> assertEquals(80_000, e.getSalary(), 0.01));
+    }
+
+    @Test
+    @DisplayName("topNBySalary — negative n returns empty list")
+    void topNBySalary_negativeN_returnsEmpty() {
+        assertTrue(service.topNBySalary(all, -1).isEmpty());
+    }
+
     // ── averageSalaryByRole ───────────────────────────────────────────────────
 
     @Test
@@ -153,6 +272,50 @@ class SalaryAnalyticsServiceImplTest {
     @DisplayName("averageSalaryByRole — empty input returns empty map")
     void averageSalaryByRole_emptyInput() {
         assertTrue(service.averageSalaryByRole(Collections.emptyList()).isEmpty());
+    }
+
+    @ParameterizedTest(name = "role={0}  expectedAvg={1}")
+    @DisplayName("averageSalaryByRole — parameterised expected averages")
+    @CsvSource({
+            "engineer,   87500.0",
+            "designer,   60000.0",
+            "manager,   110000.0",
+            "qa analyst,  55000.0"
+    })
+    void averageSalaryByRole_parameterisedAverages(String role, double expectedAvg) {
+        double actual = Optional.ofNullable(service.averageSalaryByRole(all).get(role))
+                .orElseThrow(() -> new AssertionError("role '" + role + "' not found"));
+        assertEquals(expectedAvg, actual, 0.01);
+    }
+
+    @Test
+    @DisplayName("averageSalaryByRole — role keys are stripped of whitespace")
+    void averageSalaryByRole_whitespaceRoleStripped() {
+        List<Employee> withSpaces = List.of(
+                emp(20, 10, "  Engineer  ", 80_000, EmployeeStatus.ACTIVE),
+                emp(21, 10, "Engineer",     90_000, EmployeeStatus.ACTIVE)
+        );
+        Map<String, Double> result = service.averageSalaryByRole(withSpaces);
+        // both should collapse into the same "engineer" key
+        assertEquals(1, result.size(), "whitespace variants should merge into one key");
+        assertEquals(85_000, result.get("engineer"), 0.01);
+    }
+
+    @Test
+    @DisplayName("averageSalaryByRole — absent role returns empty Optional on lookup")
+    void averageSalaryByRole_absentRoleIsEmpty() {
+        Optional<Double> absent =
+                Optional.ofNullable(service.averageSalaryByRole(all).get("ceo"));
+        assertTrue(absent.isEmpty(), "'ceo' role must not be present");
+    }
+
+    @Test
+    @DisplayName("averageSalaryByRole — single employee: avg equals that employee's salary")
+    void averageSalaryByRole_singleEmployee_avgEqualsSalary() {
+        List<Employee> single = List.of(emp(30, 10, "Architect", 120_000, EmployeeStatus.ACTIVE));
+        double avg = Optional.ofNullable(service.averageSalaryByRole(single).get("architect"))
+                .orElseThrow();
+        assertEquals(120_000, avg, 0.01);
     }
 
     // ── partitionByStatus ─────────────────────────────────────────────────────
@@ -190,6 +353,43 @@ class SalaryAnalyticsServiceImplTest {
         assertTrue(result.get(false).isEmpty());
     }
 
+    @ParameterizedTest(name = "activeCount={0}  inactiveCount={1}")
+    @DisplayName("partitionByStatus — parameterised counts for various mixes")
+    @CsvSource({
+            "0, 5",   // all inactive
+            "3, 2",
+            "5, 0"    // all active
+    })
+    void partitionByStatus_parameterisedCounts(int activeCount, int inactiveCount) {
+        List<Employee> mixed = new java.util.ArrayList<>();
+        for (int i = 1; i <= activeCount;   i++) mixed.add(emp(i,        10, "Eng", 70_000, EmployeeStatus.ACTIVE));
+        for (int i = 1; i <= inactiveCount; i++) mixed.add(emp(100 + i,  10, "Eng", 70_000, EmployeeStatus.INACTIVE));
+
+        Map<Boolean, List<Employee>> result = service.partitionByStatus(mixed);
+        assertEquals(activeCount,   result.get(true).size(),  "active count");
+        assertEquals(inactiveCount, result.get(false).size(), "inactive count");
+    }
+
+    @Test
+    @DisplayName("partitionByStatus — all employees inactive: active bucket is empty")
+    void partitionByStatus_allInactive_activeBucketEmpty() {
+        List<Employee> allInactive = List.of(
+                emp(10, 10, "Engineer", 70_000, EmployeeStatus.INACTIVE),
+                emp(11, 10, "Engineer", 80_000, EmployeeStatus.INACTIVE)
+        );
+        Map<Boolean, List<Employee>> result = service.partitionByStatus(allInactive);
+        assertTrue(result.get(true).isEmpty(),  "active bucket must be empty");
+        assertEquals(2, result.get(false).size(), "inactive bucket must have 2");
+    }
+
+    @Test
+    @DisplayName("partitionByStatus — active partition list is unmodifiable")
+    void partitionByStatus_activeListIsUnmodifiable() {
+        Map<Boolean, List<Employee>> result = service.partitionByStatus(all);
+        assertThrows(UnsupportedOperationException.class,
+                () -> result.get(true).add(alice));
+    }
+
     // ── buildReport ───────────────────────────────────────────────────────────
 
     @Test
@@ -224,5 +424,74 @@ class SalaryAnalyticsServiceImplTest {
         assertTrue(report.activeEmployees().isEmpty());
         assertTrue(report.inactiveEmployees().isEmpty());
     }
-}
 
+    @Test
+    @DisplayName("buildReport — byDepartment Optional lookup: known dept present, unknown absent")
+    void buildReport_optionalDeptLookup() {
+        SalaryAnalyticsReport report = service.buildReport(all);
+
+        Optional<DepartmentSalaryReport> present = Optional.ofNullable(report.byDepartment().get(10));
+        Optional<DepartmentSalaryReport> absent  = Optional.ofNullable(report.byDepartment().get(99));
+
+        assertTrue(present.isPresent(), "dept 10 must be present");
+        assertTrue(absent.isEmpty(),    "dept 99 must be absent");
+    }
+
+    @Test
+    @DisplayName("buildReport — avgSalaryByRole Optional lookup: known role present, unknown absent")
+    void buildReport_optionalRoleLookup() {
+        SalaryAnalyticsReport report = service.buildReport(all);
+
+        Optional<Double> engineer = Optional.ofNullable(report.avgSalaryByRole().get("engineer"));
+        Optional<Double> ceo      = Optional.ofNullable(report.avgSalaryByRole().get("ceo"));
+
+        assertTrue(engineer.isPresent(), "engineer must be present");
+        assertTrue(ceo.isEmpty(),        "ceo must be absent");
+        assertEquals(87_500, engineer.get(), 0.01);
+    }
+
+    @Test
+    @DisplayName("buildReport — single-employee list produces report with one dept, one role, one active")
+    void buildReport_singleEmployee() {
+        SalaryAnalyticsReport report = service.buildReport(List.of(alice));
+
+        assertAll(
+                () -> assertEquals(1, report.byDepartment().size()),
+                () -> assertEquals(1, report.top5BySalary().size()),
+                () -> assertEquals(1, report.avgSalaryByRole().size()),
+                () -> assertEquals(1, report.activeEmployees().size()),
+                () -> assertEquals(0, report.inactiveEmployees().size())
+        );
+    }
+
+    @Test
+    @DisplayName("buildReport — inactive-only list: activeEmployees is empty, inactiveEmployees has all")
+    void buildReport_allInactive() {
+        List<Employee> inactiveOnly = List.of(
+                emp(10, 10, "QA", 50_000, EmployeeStatus.INACTIVE),
+                emp(11, 20, "QA", 60_000, EmployeeStatus.INACTIVE)
+        );
+        SalaryAnalyticsReport report = service.buildReport(inactiveOnly);
+        assertTrue(report.activeEmployees().isEmpty(),   "no active employees expected");
+        assertEquals(2, report.inactiveEmployees().size(), "both should be inactive");
+    }
+
+    @Test
+    @DisplayName("buildReport — top5 capped at 5 even when more employees exist")
+    void buildReport_top5CappedAtFive() {
+        // build 8 employees across various salaries
+        List<Employee> large = List.of(
+                emp(1, 10, "Eng", 100_000, EmployeeStatus.ACTIVE),
+                emp(2, 10, "Eng", 95_000,  EmployeeStatus.ACTIVE),
+                emp(3, 10, "Eng", 90_000,  EmployeeStatus.ACTIVE),
+                emp(4, 10, "Eng", 85_000,  EmployeeStatus.ACTIVE),
+                emp(5, 10, "Eng", 80_000,  EmployeeStatus.ACTIVE),
+                emp(6, 10, "Eng", 75_000,  EmployeeStatus.ACTIVE),
+                emp(7, 10, "Eng", 70_000,  EmployeeStatus.ACTIVE),
+                emp(8, 10, "Eng", 65_000,  EmployeeStatus.ACTIVE)
+        );
+        SalaryAnalyticsReport report = service.buildReport(large);
+        assertEquals(5, report.top5BySalary().size(), "top5 must be capped at 5");
+        assertEquals(100_000, report.top5BySalary().get(0).getSalary(), 0.01, "highest first");
+    }
+}
