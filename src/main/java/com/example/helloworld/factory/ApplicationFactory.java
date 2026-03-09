@@ -2,6 +2,7 @@ package com.example.helloworld.factory;
 
 import com.example.helloworld.controller.EmployeeController;
 import com.example.helloworld.controller.PayrollController;
+import com.example.helloworld.controller.SalaryAnalyticsController;
 import com.example.helloworld.repository.EmployeeRepository;
 import com.example.helloworld.repository.inmemory.InMemoryEmployeeRepository;
 import com.example.helloworld.service.*;
@@ -37,10 +38,15 @@ public interface ApplicationFactory {
     /** Creates a {@link PayrollService} wired to the singleton strategy registry. */
     PayrollService createPayrollService();
 
+    /** Creates a {@link SalaryAnalyticsService} for stream-based salary analytics. */
+    SalaryAnalyticsService createSalaryAnalyticsService();
+
     /** Creates a fully-wired {@link EmployeeController}. */
     EmployeeController createEmployeeController();
 
     /** Creates a fully-wired {@link PayrollController}. */
     PayrollController createPayrollController();
-}
 
+    /** Creates a fully-wired {@link SalaryAnalyticsController}. */
+    SalaryAnalyticsController createSalaryAnalyticsController();
+}

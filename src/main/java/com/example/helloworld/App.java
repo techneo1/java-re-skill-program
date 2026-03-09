@@ -2,6 +2,7 @@ package com.example.helloworld;
 
 import com.example.helloworld.controller.EmployeeController;
 import com.example.helloworld.controller.PayrollController;
+import com.example.helloworld.controller.SalaryAnalyticsController;
 import com.example.helloworld.domain.*;
 import com.example.helloworld.factory.ApplicationFactory;
 import com.example.helloworld.factory.InMemoryApplicationFactory;
@@ -69,9 +70,10 @@ public class App {
         // Swapping to a DB-backed stack only requires changing the factory.
         // ════════════════════════════════════════════════════════════════════
 
-        ApplicationFactory factory  = new InMemoryApplicationFactory();           // Abstract Factory
-        EmployeeController empCtrl  = factory.createEmployeeController();
-        PayrollController  payCtrl  = factory.createPayrollController();
+        ApplicationFactory         factory      = new InMemoryApplicationFactory();
+        EmployeeController         empCtrl      = factory.createEmployeeController();
+        PayrollController          payCtrl      = factory.createPayrollController();
+        SalaryAnalyticsController  analyticsCtrl = factory.createSalaryAnalyticsController();
 
         // ── Factory Method + Builder pattern: create employees via EmployeeFactory ──
         // EmployeeFactory.create*() methods hide which constructor / Builder
@@ -224,6 +226,46 @@ public class App {
         List<PayrollRecord> records = payCtrl.processAll(batch, payrollMonth);
         records.forEach(r -> System.out.printf("  id=%-2d  employeeId=%-2d  net=%.2f%n",
                 r.id(), r.employeeId(), r.netSalary()));
+
+        // ════════════════════════════════════════════════════════════════════
+        // PART 5 — Salary Analytics (stream pipelines)
+        //
+        // SalaryAnalyticsController → SalaryAnalyticsService (streams only)
+        // ════════════════════════════════════════════════════════════════════
+
+        printSection("Salary Analytics — group employees by department");
+        analyticsCtrl.groupByDepartment().forEach((deptId, report) ->
+                System.out.printf("  dept=%-3d  headCount=%-2d  avg=%,.2f  min=%,.2f  max=%,.2f%n",
+                        report.departmentId(), report.headCount(),
+                        report.averageSalary(), report.minSalary(), report.maxSalary()));
+
+        printSection("Salary Analytics — top 5 highest salaries");
+        analyticsCtrl.top5BySalary().forEach(e ->
+                System.out.printf("  %-20s  dept=%-3d  salary=%,.2f%n",
+                        e.getName(), e.getDepartmentId(), e.getSalary()));
+
+        printSection("Salary Analytics — average salary per role");
+        analyticsCtrl.averageSalaryByRole().entrySet().stream()
+                .sorted(Map.Entry.<String, Double>comparingByValue().reversed())
+                .forEach(entry ->
+                        System.out.printf("  %-20s  avg=%,.2f%n", entry.getKey(), entry.getValue()));
+
+        printSection("Salary Analytics — partition active vs inactive");
+        Map<Boolean, List<Employee>> partition = analyticsCtrl.partitionByStatus();
+        System.out.println("  ACTIVE   (" + partition.get(true).size()  + "):");
+        partition.get(true) .forEach(e -> System.out.printf("    → %s%n", e.getName()));
+        System.out.println("  INACTIVE (" + partition.get(false).size() + "):");
+        partition.get(false).forEach(e -> System.out.printf("    → %s%n", e.getName()));
+
+        printSection("Salary Analytics — full report (all 4 analytics bundled)");
+        SalaryAnalyticsReport report = analyticsCtrl.buildReport();
+        if (report != null) {
+            System.out.println("  Departments covered : " + report.byDepartment().size());
+            System.out.println("  Top-5 employees     : " + report.top5BySalary().size());
+            System.out.println("  Distinct roles      : " + report.avgSalaryByRole().size());
+            System.out.println("  Active employees    : " + report.activeEmployees().size());
+            System.out.println("  Inactive employees  : " + report.inactiveEmployees().size());
+        }
     }
 
     private static void printSection(String title) {

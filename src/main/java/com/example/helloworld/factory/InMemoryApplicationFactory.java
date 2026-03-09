@@ -2,6 +2,7 @@ package com.example.helloworld.factory;
 
 import com.example.helloworld.controller.EmployeeController;
 import com.example.helloworld.controller.PayrollController;
+import com.example.helloworld.controller.SalaryAnalyticsController;
 import com.example.helloworld.repository.EmployeeRepository;
 import com.example.helloworld.repository.inmemory.InMemoryEmployeeRepository;
 import com.example.helloworld.service.*;
@@ -17,10 +18,11 @@ import com.example.helloworld.service.*;
 public class InMemoryApplicationFactory implements ApplicationFactory {
 
     // Lazily-initialised, cached instances
-    private EmployeeRepository repository;
-    private EmployeeService    employeeService;
-    private ValidationService  validationService;
-    private PayrollService     payrollService;
+    private EmployeeRepository       repository;
+    private EmployeeService          employeeService;
+    private ValidationService        validationService;
+    private PayrollService           payrollService;
+    private SalaryAnalyticsService   salaryAnalyticsService;
 
     @Override
     public EmployeeRepository createEmployeeRepository() {
@@ -56,6 +58,14 @@ public class InMemoryApplicationFactory implements ApplicationFactory {
     }
 
     @Override
+    public SalaryAnalyticsService createSalaryAnalyticsService() {
+        if (salaryAnalyticsService == null) {
+            salaryAnalyticsService = new SalaryAnalyticsServiceImpl();
+        }
+        return salaryAnalyticsService;
+    }
+
+    @Override
     public EmployeeController createEmployeeController() {
         return new EmployeeController(createEmployeeService(), createValidationService());
     }
@@ -64,5 +74,9 @@ public class InMemoryApplicationFactory implements ApplicationFactory {
     public PayrollController createPayrollController() {
         return new PayrollController(createPayrollService());
     }
-}
 
+    @Override
+    public SalaryAnalyticsController createSalaryAnalyticsController() {
+        return new SalaryAnalyticsController(createEmployeeService(), createSalaryAnalyticsService());
+    }
+}
