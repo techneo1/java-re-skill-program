@@ -7,22 +7,33 @@ import com.example.helloworld.repository.EmployeeRepository;
 import com.example.helloworld.repository.inmemory.InMemoryEmployeeRepository;
 import com.example.helloworld.service.*;
 
+import java.util.Set;
+
 /**
  * Concrete Abstract Factory that wires the entire application stack
  * using in-memory storage.
  *
- * Each component is created lazily and cached so every call to
- * createEmployeeController() / createPayrollController() returns an
- * object backed by the same shared repository and services.
+ * The ValidationService is wired with:
+ *   - the shared repository (for unique-email checks), and
+ *   - the default set of valid department IDs (10, 20, 30).
+ *
+ * Swap the validDepartmentIds set or supply a different repository to
+ * customise validation without touching any other layer.
  */
 public class InMemoryApplicationFactory implements ApplicationFactory {
 
+    /**
+     * Default known department IDs used for referential-integrity validation.
+     * In a real system this would be loaded from a DepartmentRepository.
+     */
+    private static final Set<Integer> DEFAULT_DEPARTMENT_IDS = Set.of(10, 20, 30);
+
     // Lazily-initialised, cached instances
-    private EmployeeRepository       repository;
-    private EmployeeService          employeeService;
-    private ValidationService        validationService;
-    private PayrollService           payrollService;
-    private SalaryAnalyticsService   salaryAnalyticsService;
+    private EmployeeRepository     repository;
+    private EmployeeService        employeeService;
+    private ValidationService      validationService;
+    private PayrollService         payrollService;
+    private SalaryAnalyticsService salaryAnalyticsService;
 
     @Override
     public EmployeeRepository createEmployeeRepository() {
@@ -40,10 +51,20 @@ public class InMemoryApplicationFactory implements ApplicationFactory {
         return employeeService;
     }
 
+    /**
+     * Creates an {@link EmployeeValidationService} wired with:
+     * <ul>
+     *   <li>the shared repository — enables unique-email checking</li>
+     *   <li>{@link #DEFAULT_DEPARTMENT_IDS} — enables department-existence checking</li>
+     * </ul>
+     */
     @Override
     public ValidationService createValidationService() {
         if (validationService == null) {
-            validationService = new EmployeeValidationService();
+            validationService = new EmployeeValidationService(
+                    createEmployeeRepository(),
+                    DEFAULT_DEPARTMENT_IDS
+            );
         }
         return validationService;
     }
@@ -51,7 +72,6 @@ public class InMemoryApplicationFactory implements ApplicationFactory {
     @Override
     public PayrollService createPayrollService() {
         if (payrollService == null) {
-            // PayrollServiceImpl() uses the singleton PayrollStrategyRegistry internally
             payrollService = new PayrollServiceImpl();
         }
         return payrollService;

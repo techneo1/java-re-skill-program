@@ -108,7 +108,25 @@ public class SalaryAnalyticsController {
         }
     }
 
-    // ── 5. Full analytics report ──────────────────────────────────────────────
+    // ── 5. Group employees by role ────────────────────────────────────────────
+
+    /**
+     * Groups all employees by role name (lower-cased).
+     * Within each role bucket employees are sorted salary desc → name asc.
+     *
+     * @return unmodifiable map: role → employee list; empty map on error
+     */
+    public Map<String, List<Employee>> groupByRole() {
+        try {
+            List<Employee> all = employeeService.getAllEmployees();
+            return analyticsService.groupByRole(all);
+        } catch (Exception e) {
+            System.err.printf("[SalaryAnalyticsController] Error grouping by role: %s%n", e.getMessage());
+            return Collections.emptyMap();
+        }
+    }
+
+    // ── 6. Full analytics report ──────────────────────────────────────────────
 
     /**
      * Runs all four analytics and returns a bundled {@link SalaryAnalyticsReport}.
@@ -125,4 +143,3 @@ public class SalaryAnalyticsController {
         }
     }
 }
-

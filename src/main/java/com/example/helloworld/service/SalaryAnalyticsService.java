@@ -59,5 +59,12 @@ public interface SalaryAnalyticsService {
      * @return a fully-populated {@link SalaryAnalyticsReport}
      */
     SalaryAnalyticsReport buildReport(List<Employee> employees);
-}
 
+    /**
+     * Groups employees by role name (case-insensitive, normalised to lower-case).
+     *
+     * @param employees source list (may be empty)
+     * @return unmodifiable map: role → list of employees in that role
+     */
+    Map<String, List<Employee>> groupByRole(List<Employee> employees);
+}

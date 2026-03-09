@@ -6,13 +6,14 @@ import java.util.Map;
 /**
  * Immutable analytics report produced by {@link com.example.helloworld.service.SalaryAnalyticsService}.
  *
- * <p>Aggregates five analytics views in one place:
+ * <p>Aggregates six analytics views in one place:
  * <ol>
  *   <li>{@code byDepartment}      — per-department salary summary (headcount, avg, min, max)</li>
  *   <li>{@code top5BySalary}      — up to 5 employees with the highest base salaries</li>
  *   <li>{@code avgSalaryByRole}   — average salary keyed by role name</li>
  *   <li>{@code activeEmployees}   — employees whose status is ACTIVE</li>
  *   <li>{@code inactiveEmployees} — employees whose status is INACTIVE</li>
+ *   <li>{@code byRole}            — employees grouped by role name</li>
  * </ol>
  *
  * <p>All collections are unmodifiable; the record itself is immutable.
@@ -22,7 +23,8 @@ public record SalaryAnalyticsReport(
         List<Employee>                       top5BySalary,
         Map<String, Double>                  avgSalaryByRole,
         List<Employee>                       activeEmployees,
-        List<Employee>                       inactiveEmployees
+        List<Employee>                       inactiveEmployees,
+        Map<String, List<Employee>>          byRole
 ) {
     /** Compact constructor — guards against null collections. */
     public SalaryAnalyticsReport {
@@ -31,6 +33,6 @@ public record SalaryAnalyticsReport(
         if (avgSalaryByRole   == null) throw new IllegalArgumentException("avgSalaryByRole must not be null");
         if (activeEmployees   == null) throw new IllegalArgumentException("activeEmployees must not be null");
         if (inactiveEmployees == null) throw new IllegalArgumentException("inactiveEmployees must not be null");
+        if (byRole            == null) throw new IllegalArgumentException("byRole must not be null");
     }
 }
-
