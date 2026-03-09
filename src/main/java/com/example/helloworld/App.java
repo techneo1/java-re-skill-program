@@ -3,12 +3,10 @@ package com.example.helloworld;
 import com.example.helloworld.controller.EmployeeController;
 import com.example.helloworld.controller.PayrollController;
 import com.example.helloworld.domain.*;
-import com.example.helloworld.exception.*;
+import com.example.helloworld.factory.ApplicationFactory;
+import com.example.helloworld.factory.InMemoryApplicationFactory;
 import com.example.helloworld.repository.DepartmentKey;
 import com.example.helloworld.repository.EmployeeKey;
-import com.example.helloworld.repository.EmployeeRepository;
-import com.example.helloworld.repository.inmemory.InMemoryEmployeeRepository;
-import com.example.helloworld.service.*;
 
 import java.time.LocalDate;
 import java.util.HashMap;
@@ -66,18 +64,43 @@ public class App {
 
         // ════════════════════════════════════════════════════════════════════
         // PART 2 — Controller → Service → Repository (layered architecture)
+        //
+        // Abstract Factory pattern: the entire stack is wired by one factory.
+        // Swapping to a DB-backed stack only requires changing the factory.
         // ════════════════════════════════════════════════════════════════════
 
-        EmployeeRepository   repository        = new InMemoryEmployeeRepository();
-        EmployeeService      employeeService   = new EmployeeServiceImpl(repository);
-        ValidationService    validationService = new EmployeeValidationService();
-        EmployeeController   empCtrl           = new EmployeeController(employeeService, validationService);
+        ApplicationFactory factory  = new InMemoryApplicationFactory();           // Abstract Factory
+        EmployeeController empCtrl  = factory.createEmployeeController();
+        PayrollController  payCtrl  = factory.createPayrollController();
 
-        Employee alice = new PermanentEmployee(1, "Alice Kumar", "alice@example.com", 10, "Engineer",    85_000, EmployeeStatus.ACTIVE,   LocalDate.of(2020, 6,  1),  true);
-        Employee bob   = new PermanentEmployee(2, "Bob Singh",   "bob@example.com",   10, "Engineer",    90_000, EmployeeStatus.ACTIVE,   LocalDate.of(2019, 3, 15),  true);
-        Employee carol = new ContractEmployee (3, "Carol Menon", "carol@example.com", 20, "Designer",    60_000, EmployeeStatus.ACTIVE,   LocalDate.of(2023, 1,  1),  LocalDate.of(2025, 12, 31));
-        Employee dave  = new PermanentEmployee(4, "Dave Patel",  "dave@example.com",  20, "Manager",    110_000, EmployeeStatus.ACTIVE,   LocalDate.of(2017, 8, 20),  true);
-        Employee eve   = new ContractEmployee (5, "Eve Sharma",  "eve@example.com",   30, "QA Analyst",  55_000, EmployeeStatus.INACTIVE, LocalDate.of(2022, 5, 10),  LocalDate.of(2024, 5, 9));
+        // ── Factory Method + Builder pattern: create employees via EmployeeFactory ──
+        // EmployeeFactory.create*() methods hide which constructor / Builder
+        // is invoked; callers only depend on the Employee abstraction.
+
+        Employee alice = EmployeeFactory.createPermanentEmployee(
+                1, "Alice Kumar", "alice@example.com", 10, "Engineer",
+                85_000, LocalDate.of(2020, 6, 1), true);
+
+        Employee bob = EmployeeFactory.createPermanentEmployee(
+                2, "Bob Singh", "bob@example.com", 10, "Engineer",
+                90_000, LocalDate.of(2019, 3, 15), true);
+
+        Employee carol = EmployeeFactory.createContractEmployee(
+                3, "Carol Menon", "carol@example.com", 20, "Designer",
+                60_000, LocalDate.of(2023, 1, 1), LocalDate.of(2025, 12, 31));
+
+        Employee dave = EmployeeFactory.createPermanentEmployee(
+                4, "Dave Patel", "dave@example.com", 20, "Manager",
+                110_000, LocalDate.of(2017, 8, 20), true);
+
+        // INACTIVE employee — demonstrate Builder used directly for non-ACTIVE status
+        Employee eve = ContractEmployee.builder()
+                .id(5).name("Eve Sharma").email("eve@example.com")
+                .departmentId(30).role("QA Analyst").salary(55_000)
+                .status(EmployeeStatus.INACTIVE)
+                .joiningDate(LocalDate.of(2022, 5, 10))
+                .contractEndDate(LocalDate.of(2024, 5, 9))
+                .build();
 
         printSection("Add employees via Controller (validation + service + repository)");
         empCtrl.addEmployee(alice);
@@ -122,7 +145,7 @@ public class App {
         System.out.println("Store size after removal : " + empCtrl.countEmployees());
         System.out.println("Find Bob by id           : " + empCtrl.getById(2));
 
-        // ════════════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════���══════
         // PART 3 — Controller error-handling demo
         // ════════════════════════════════════════════════════════════════════
 
@@ -130,8 +153,12 @@ public class App {
         empCtrl.addEmployee(alice);       // already exists — handled internally
 
         printSection("Controller handles duplicate email — no exception thrown to caller");
-        Employee sameEmail = new PermanentEmployee(99, "Alice Twin", "alice@example.com",
-                10, "Engineer", 80_000, EmployeeStatus.ACTIVE, LocalDate.of(2021, 1, 1), true);
+        Employee sameEmail = PermanentEmployee.builder()
+                .id(99).name("Alice Twin").email("alice@example.com")
+                .departmentId(10).role("Engineer").salary(80_000)
+                .joiningDate(LocalDate.of(2021, 1, 1))
+                .gratuityEligible(true)
+                .build();
         empCtrl.addEmployee(sameEmail);
 
         printSection("Controller handles remove of non-existent id — no exception thrown to caller");
@@ -142,26 +169,33 @@ public class App {
         System.out.println("Result size: " + badRange.size());
 
         printSection("Controller handles ValidationException (invalid email) — no exception to caller");
-        Employee badEmailEmp = new PermanentEmployee(50, "Bad Email", "notanemail",
-                10, "Engineer", 70_000, EmployeeStatus.ACTIVE, LocalDate.of(2022, 1, 1), true);
+        Employee badEmailEmp = PermanentEmployee.builder()
+                .id(50).name("Bad Email").email("notanemail")
+                .departmentId(10).role("Engineer").salary(70_000)
+                .joiningDate(LocalDate.of(2022, 1, 1))
+                .gratuityEligible(true)
+                .build();
         empCtrl.addEmployee(badEmailEmp);
 
         // ════════════════════════════════════════════════════════════════════
         // PART 4 — PayrollController → PayrollService → Strategy
-        // ════════════════════════════════════════════════��═══════════════════
+        //          PayrollService uses the Singleton PayrollStrategyRegistry
+        // ════════════════════════════════════════════════════════════════════
 
-        PayrollService    payrollService = new PayrollServiceImpl();
-        PayrollController payCtrl        = new PayrollController(payrollService);
-        LocalDate         payrollMonth   = LocalDate.of(2026, 3, 1);
+        LocalDate payrollMonth = LocalDate.of(2026, 3, 1);
 
-        Employee validEmp = new PermanentEmployee(10, "Sara Ali", "sara@example.com",
-                10, "Engineer", 80_000, EmployeeStatus.ACTIVE, LocalDate.of(2021, 4, 1), true);
-        Employee activeContract = new ContractEmployee(14, "Lisa Chen", "lisa@example.com",
-                20, "Designer", 60_000, EmployeeStatus.ACTIVE,
-                LocalDate.of(2024, 1, 1), LocalDate.of(2027, 1, 1));
-        Employee expiredContract = new ContractEmployee(12, "Raj Kumar", "raj@example.com",
-                20, "Designer", 50_000, EmployeeStatus.ACTIVE,
-                LocalDate.of(2022, 1, 1), LocalDate.of(2023, 6, 30));
+        // Factory Method creates validated employees; Builder used for fine-grained control
+        Employee validEmp = EmployeeFactory.createPermanentEmployee(
+                10, "Sara Ali", "sara@example.com", 10, "Engineer",
+                80_000, LocalDate.of(2021, 4, 1), true);
+
+        Employee activeContract = EmployeeFactory.createContractEmployee(
+                14, "Lisa Chen", "lisa@example.com", 20, "Designer",
+                60_000, LocalDate.of(2024, 1, 1), LocalDate.of(2027, 1, 1));
+
+        Employee expiredContract = EmployeeFactory.createContractEmployee(
+                12, "Raj Kumar", "raj@example.com", 20, "Designer",
+                50_000, LocalDate.of(2022, 1, 1), LocalDate.of(2023, 6, 30));
 
         printSection("PayrollController — permanent employee (tax 20%)");
         PayrollRecord pr1 = payCtrl.processPayroll(1, validEmp, payrollMonth);

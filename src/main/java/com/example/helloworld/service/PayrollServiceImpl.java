@@ -23,11 +23,12 @@ public class PayrollServiceImpl implements PayrollService {
     private final PayrollStrategyResolver resolver;
 
     /**
-     * Default wiring for the demo app/tests.
-     * New employee types can be supported by registering another strategy.
+     * Default wiring — uses the application-wide Singleton registry.
+     * New employee types can be supported by registering another strategy
+     * on {@link PayrollStrategyRegistry#getInstance()}.
      */
     public PayrollServiceImpl() {
-        this(defaultRegistry());
+        this(PayrollStrategyRegistry.getInstance());
     }
 
     public PayrollServiceImpl(PayrollStrategyResolver resolver) {
@@ -62,8 +63,6 @@ public class PayrollServiceImpl implements PayrollService {
     }
 
     private static PayrollStrategyResolver defaultRegistry() {
-        return new PayrollStrategyRegistry()
-                .register(PermanentEmployee.class, new PermanentEmployeePayrollStrategy())
-                .register(ContractEmployee.class, new ContractEmployeePayrollStrategy());
+        return PayrollStrategyRegistry.getInstance();
     }
 }

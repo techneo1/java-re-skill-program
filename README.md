@@ -1,19 +1,21 @@
-# Java Re-Skill Program — Layered Design with OOP Concepts
+# Java Re-Skill Program — Layered Design with OOP & Creational Design Patterns
 
 ## Overview
 
 This project demonstrates a **layered Java application** applying core OOP concepts in Java 17,
 including **sealed class hierarchies**, **records**, **encapsulation**, **abstraction**, and
 **inheritance**, organised into five distinct layers following the
-**Controller → Service → Repository** architecture:
+**Controller → Service → Repository** architecture.
 
-| Layer          | Package                                      | Responsibility                                        |
-|----------------|----------------------------------------------|-------------------------------------------------------|
-| **Controller** | `com.example.helloworld.controller`          | Entry point: validates input, delegates to service, handles all exceptions |
-| **Service**    | `com.example.helloworld.service`             | Business logic: employee, validation, payroll         |
-| **Repository** | `com.example.helloworld.repository`          | Data access contract + key types                      |
-| **In-Memory**  | `com.example.helloworld.repository.inmemory` | Collections-backed repository impl                   |
-| **Domain**     | `com.example.helloworld.domain`              | Core business entities, value types, payroll strategy |
+It also applies all five **Creational Design Patterns** (GoF) wherever object construction
+complexity justifies them:
+
+| Pattern              | Applied To                                      | Benefit                                                       |
+|----------------------|-------------------------------------------------|---------------------------------------------------------------|
+| **Builder**          | `PermanentEmployee`, `ContractEmployee`         | Readable, step-by-step construction of complex domain objects |
+| **Factory Method**   | `EmployeeFactory`                               | Centralised, named creation hiding concrete subclass details  |
+| **Singleton**        | `PayrollStrategyRegistry`                       | One shared, fully-wired strategy registry across the app      |
+| **Abstract Factory** | `ApplicationFactory` / `InMemoryApplicationFactory` | Wires the entire controller/service/repo stack in one place  |
 
 ---
 
@@ -22,13 +24,20 @@ including **sealed class hierarchies**, **records**, **encapsulation**, **abstra
 ```
 App
  │
- ├── EmployeeController  ──►  EmployeeService  ──►  EmployeeRepository  ──►  InMemoryEmployeeRepository
+ ├── [Abstract Factory] InMemoryApplicationFactory
  │        │
- │        └── (validates via) ValidationService
+ │        ├── creates EmployeeController  ──►  EmployeeService  ──►  EmployeeRepository
+ │        │           │                                                └── InMemoryEmployeeRepository
+ │        │           └── (validates via) ValidationService
+ │        │
+ │        └── creates PayrollController   ──►  PayrollService   ──►  PayrollStrategyResolver
+ │                                                                      └── [Singleton] PayrollStrategyRegistry
+ │                                                                            ├── PermanentEmployeePayrollStrategy
+ │                                                                            └── ContractEmployeePayrollStrategy
  │
- └── PayrollController   ──►  PayrollService   ──►  PayrollStrategyResolver ──► PayrollStrategy
-                                                       ├── PermanentEmployeePayrollStrategy
-                                                       └── ContractEmployeePayrollStrategy
+ └── [Factory Method] EmployeeFactory
+          ├── createPermanentEmployee(...)  ──►  [Builder] PermanentEmployee.builder().build()
+          └── createContractEmployee(...)   ──►  [Builder] ContractEmployee.builder().build()
 ```
 
 The **Controller layer** is the only entry point for callers. It:
@@ -43,14 +52,18 @@ The **Controller layer** is the only entry point for callers. It:
 ```
 src/main/java/com/example/helloworld/
 ├── App.java                                        — Entry point / demo runner
+├── factory/                                        — ★ Abstract Factory
+│   ├── ApplicationFactory.java                     — Abstract factory interface
+│   └── InMemoryApplicationFactory.java             — Concrete factory: in-memory stack
 ├── controller/
 │   ├── EmployeeController.java                     — Handles employee requests; catches all exceptions
 │   └── PayrollController.java                      — Handles payroll requests; catches all exceptions
 ├── domain/
 │   ├── EmployeeStatus.java                         — Enum: ACTIVE / INACTIVE
 │   ├── Employee.java                               — Sealed abstract base class
-│   ├── PermanentEmployee.java                      — Final subclass: permanent staff
-│   ├── ContractEmployee.java                       — Final subclass: contract staff
+│   ├── PermanentEmployee.java                      — Final subclass + ★ Builder
+│   ├── ContractEmployee.java                       — Final subclass + ★ Builder
+│   ├── EmployeeFactory.java                        — ★ Factory Method: named employee creation
 │   ├── Department.java                             — Record (immutable DTO)
 │   ├── PayrollRecord.java                          — Record (immutable DTO)
 │   └── payroll/
@@ -71,7 +84,7 @@ src/main/java/com/example/helloworld/
 │   ├── PayrollService.java                         — Interface: payroll processing
 │   ├── PayrollServiceImpl.java                     — Payroll orchestration (uses a resolver)
 │   ├── PayrollStrategyResolver.java                — Interface: resolves strategy for an employee (DIP)
-│   └── PayrollStrategyRegistry.java                — Default registry/lookup (OCP)
+│   └── PayrollStrategyRegistry.java                — ★ Singleton registry/lookup (OCP)
 └── exception/
     ├── EmployeeException.java                      — Base checked exception
     ├── DuplicateEmployeeException.java
@@ -94,6 +107,143 @@ src/test/java/com/example/helloworld/
     ├── PayrollServiceImplTest.java
     └── PayrollStrategyRegistryTest.java
 ```
+
+---
+
+## Creational Design Patterns
+
+### ★ Builder — `PermanentEmployee` & `ContractEmployee`
+
+**Problem:** Both employee classes have long constructors (8–9 parameters). Passing positional
+arguments is error-prone and unreadable.
+
+**Solution:** Each class exposes a static nested `Builder` that lets callers set only what
+they need, in any order, with a fluent API.
+
+```java
+// Before — positional constructor, hard to read
+Employee alice = new PermanentEmployee(
+        1, "Alice Kumar", "alice@example.com", 10, "Engineer",
+        85_000, EmployeeStatus.ACTIVE, LocalDate.of(2020, 6, 1), true);
+
+// After — Builder: self-documenting, resilient to parameter reordering
+Employee alice = PermanentEmployee.builder()
+        .id(1).name("Alice Kumar").email("alice@example.com")
+        .departmentId(10).role("Engineer").salary(85_000)
+        .joiningDate(LocalDate.of(2020, 6, 1))
+        .gratuityEligible(true)
+        .build();
+
+// ContractEmployee Builder
+Employee carol = ContractEmployee.builder()
+        .id(3).name("Carol Menon").email("carol@example.com")
+        .departmentId(20).role("Designer").salary(60_000)
+        .joiningDate(LocalDate.of(2023, 1, 1))
+        .contractEndDate(LocalDate.of(2025, 12, 31))
+        .build();
+```
+
+> The default `status` is `EmployeeStatus.ACTIVE`. Call `.status(EmployeeStatus.INACTIVE)`
+> on the builder when you need to override it.
+
+---
+
+### ★ Factory Method — `EmployeeFactory`
+
+**Problem:** Callers need to know which concrete subclass to instantiate and which builder
+fields to set — coupling them to implementation details.
+
+**Solution:** `EmployeeFactory` provides **named static factory methods** that encapsulate
+the builder calls behind an intent-revealing API. Callers depend only on `Employee`.
+
+```java
+// Permanent employee (always ACTIVE, gratuity flag explicit)
+Employee alice = EmployeeFactory.createPermanentEmployee(
+        1, "Alice Kumar", "alice@example.com",
+        10, "Engineer", 85_000,
+        LocalDate.of(2020, 6, 1), true);
+
+// Contract employee (always ACTIVE, dates validated internally)
+Employee carol = EmployeeFactory.createContractEmployee(
+        3, "Carol Menon", "carol@example.com",
+        20, "Designer", 60_000,
+        LocalDate.of(2023, 1, 1), LocalDate.of(2025, 12, 31));
+```
+
+**Adding a new employee type** only requires a new factory method in `EmployeeFactory` — no
+existing call-sites change.
+
+---
+
+### ★ Singleton — `PayrollStrategyRegistry`
+
+**Problem:** `PayrollServiceImpl` created a brand-new `PayrollStrategyRegistry` and
+registered both strategies on every instantiation, wasting allocations and making the
+default registry inconsistent across multiple `PayrollServiceImpl` instances.
+
+**Solution:** `PayrollStrategyRegistry` uses the **Initialization-on-demand holder** idiom —
+the most idiomatic, thread-safe, lazy singleton in Java. A single shared instance is
+pre-wired with both default strategies and accessed via `getInstance()`.
+
+```java
+// One shared, fully-wired instance — lazy, thread-safe
+PayrollStrategyRegistry registry = PayrollStrategyRegistry.getInstance();
+```
+
+**Testability is preserved** — the public constructor is kept so unit tests can create
+isolated, empty registries without touching the singleton:
+
+```java
+// In tests — isolated registry, no shared state
+PayrollStrategyRegistry registry = new PayrollStrategyRegistry()
+        .register(PermanentEmployee.class, new PermanentEmployeePayrollStrategy());
+```
+
+**Extending the default registry** for a new employee type:
+
+```java
+PayrollStrategyRegistry.getInstance()
+        .register(MyNewEmployeeType.class, new MyNewPayrollStrategy());
+```
+
+---
+
+### ★ Abstract Factory — `ApplicationFactory` / `InMemoryApplicationFactory`
+
+**Problem:** `App.java` manually instantiated every repository, service, and controller with
+`new` — knowledge of the entire object graph was hardcoded in the entry point.
+
+**Solution:** `ApplicationFactory` defines an interface for creating a **family of related
+objects** (repository → services → controllers). `InMemoryApplicationFactory` is the
+concrete implementation that wires the in-memory stack.
+
+```java
+// One line to bootstrap the entire application stack
+ApplicationFactory factory = new InMemoryApplicationFactory();
+
+EmployeeController empCtrl = factory.createEmployeeController();
+PayrollController  payCtrl = factory.createPayrollController();
+```
+
+**Swapping the entire stack** (e.g. to a database-backed implementation) requires only
+changing the factory:
+
+```java
+// Drop-in replacement — no other code changes
+ApplicationFactory factory = new DatabaseApplicationFactory();
+```
+
+`InMemoryApplicationFactory` caches created instances so that all controllers and services
+share the **same** repository instance within one factory context.
+
+| Method                         | Returns                  | Notes                                   |
+|--------------------------------|--------------------------|-----------------------------------------|
+| `createEmployeeRepository()`   | `EmployeeRepository`     | Cached — same instance per factory      |
+| `createEmployeeService()`      | `EmployeeService`        | Cached — wired to the shared repository |
+| `createValidationService()`    | `ValidationService`      | Cached                                  |
+| `createPayrollService()`       | `PayrollService`         | Cached — uses singleton registry        |
+| `createEmployeeController()`   | `EmployeeController`     | New instance each call                  |
+| `createPayrollController()`    | `PayrollController`      | New instance each call                  |
 
 ---
 
@@ -166,6 +316,7 @@ to only `PermanentEmployee` and `ContractEmployee`.
 | `gratuityEligible` | `boolean` | Whether the employee qualifies for gratuity  |
 
 - `getEmployeeType()` returns `"PermanentEmployee"`.
+- **Builder:** `PermanentEmployee.builder()` — see [Builder pattern](#-builder----permanentemployee--contractemployee) above.
 
 ---
 
@@ -177,6 +328,7 @@ to only `PermanentEmployee` and `ContractEmployee`.
 
 - `getEmployeeType()` returns `"ContractEmployee"`.
 - `isExpired()` — returns `true` if the contract has passed today's date.
+- **Builder:** `ContractEmployee.builder()` — see [Builder pattern](#-builder----permanentemployee--contractemployee) above.
 
 ---
 
@@ -378,11 +530,8 @@ PayrollController  →  PayrollService  →  PayrollStrategyResolver  →  Payro
 | `processPayroll(recordId, employee, month)`    | Calculates one `PayrollRecord`; throws `PayrollException` on failure      |
 | `processAll(employees, month)`                 | Fault-tolerant batch — failed employees are logged to stderr and skipped  |
 
-**Strategy selection (SOLID refactor):**
-
-`PayrollServiceImpl` depends on `PayrollStrategyResolver` (DIP) and the default implementation
-is a small registry (`PayrollStrategyRegistry`) (OCP). This removes the `instanceof` chain from
-`PayrollServiceImpl`.
+`PayrollServiceImpl()` (no-arg) uses the **Singleton** `PayrollStrategyRegistry.getInstance()`
+as its default resolver. The injected-constructor overload is kept for testing.
 
 Default registration:
 
@@ -391,17 +540,12 @@ Default registration:
 | `PermanentEmployee`  | `PermanentEmployeePayrollStrategy`      | 20%      |
 | `ContractEmployee`   | `ContractEmployeePayrollStrategy`       | 10%      |
 
-**Extending payroll for a new employee type**
-
-Add a new `PayrollStrategy` implementation and register it:
+**Extending payroll for a new employee type:**
 
 ```java
-PayrollStrategyResolver resolver = new PayrollStrategyRegistry()
-        .register(PermanentEmployee.class, new PermanentEmployeePayrollStrategy())
-        .register(ContractEmployee.class, new ContractEmployeePayrollStrategy())
+// Register on the singleton — available app-wide immediately
+PayrollStrategyRegistry.getInstance()
         .register(MyNewEmployeeType.class, new MyNewEmployeePayrollStrategy());
-
-PayrollService payrollService = new PayrollServiceImpl(resolver);
 ```
 
 ---
@@ -425,6 +569,9 @@ EmployeeException  (base)
 ---
 
 ## OOP Concepts Applied
+
+### 🏗️ Creational Design Patterns
+See the dedicated [Creational Design Patterns](#creational-design-patterns) section above.
 
 ### 🏛️ Layered Architecture (Controller → Service → Repository)
 Each layer has a **single responsibility** and communicates only with the layer directly below it:
@@ -451,6 +598,7 @@ All fields in `Employee` are `private`. Only mutable fields (`salary`, `status`,
 - `PayrollStrategy` — *what* payroll calculation looks like, not *how*
 - `PayrollStrategyResolver` — *how* a strategy is selected (separate responsibility from payroll orchestration)
 - `ValidationService` — *what* validation means, not *how*
+- `ApplicationFactory` — *what* objects to create, not *how* they are wired
 - `getEmployeeType()` — abstract in `Employee`, forcing each subclass to identify itself
 
 ### 🧬 Inheritance
@@ -471,7 +619,7 @@ types can be supported by registration without modifying `PayrollServiceImpl`.
 | `Department`        | Auto-generated by Record (all fields)     |
 | `PayrollRecord`     | Auto-generated by Record (all fields)     |
 | `EmployeeKey`       | Hand-written — `id` + `email`             |
-| `DepartmentKey`     | Auto-generated by Record — `id` + `name`  |
+| `DepartmentKey`     | Auto-generated by Record — `id` only      |
 
 ### 📋 Records (DTOs & Keys)
 `Department`, `PayrollRecord`, and `DepartmentKey` are **immutable**. Java Records
