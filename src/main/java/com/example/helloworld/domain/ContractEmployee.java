@@ -45,10 +45,6 @@ public final class ContractEmployee extends Employee {
         public Builder contractEndDate(LocalDate endDate)       { this.contractEndDate = endDate;       return this; }
 
         public ContractEmployee build() {
-            Objects.requireNonNull(name,            "name must not be null");
-            Objects.requireNonNull(email,           "email must not be null");
-            Objects.requireNonNull(joiningDate,     "joiningDate must not be null");
-            Objects.requireNonNull(contractEndDate, "contractEndDate must not be null");
             return new ContractEmployee(id, name, email, departmentId,
                     role, salary, status, joiningDate, contractEndDate);
         }

@@ -42,9 +42,6 @@ public final class PermanentEmployee extends Employee {
         public Builder gratuityEligible(boolean eligible)  { this.gratuityEligible = eligible;   return this; }
 
         public PermanentEmployee build() {
-            Objects.requireNonNull(name,        "name must not be null");
-            Objects.requireNonNull(email,       "email must not be null");
-            Objects.requireNonNull(joiningDate, "joiningDate must not be null");
             return new PermanentEmployee(id, name, email, departmentId,
                     role, salary, status, joiningDate, gratuityEligible);
         }

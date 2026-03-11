@@ -4,8 +4,6 @@ import com.example.helloworld.controller.EmployeeController;
 import com.example.helloworld.controller.PayrollController;
 import com.example.helloworld.controller.SalaryAnalyticsController;
 import com.example.helloworld.domain.*;
-import com.example.helloworld.domain.payroll.ContractEmployeePayrollStrategy;
-import com.example.helloworld.domain.payroll.PermanentEmployeePayrollStrategy;
 import com.example.helloworld.exception.*;
 import com.example.helloworld.factory.ApplicationFactory;
 import com.example.helloworld.factory.InMemoryApplicationFactory;
@@ -13,7 +11,8 @@ import com.example.helloworld.repository.DepartmentKey;
 import com.example.helloworld.repository.EmployeeKey;
 import com.example.helloworld.service.EmployeeValidationService;
 import com.example.helloworld.service.PayrollStrategyRegistry;
-import com.example.helloworld.service.SalaryAnalyticsServiceImpl;
+import com.example.helloworld.domain.payroll.ContractEmployeePayrollStrategy;
+import com.example.helloworld.domain.payroll.PermanentEmployeePayrollStrategy;
 
 import java.time.LocalDate;
 import java.util.Comparator;
@@ -368,7 +367,7 @@ public class App {
         //
         // PROOF: Both employees are created via factory; their concrete types
         //        are exposed only to show the sealed hierarchy is correct.
-        // ────────────────────────────────────────────────────────────────────
+        // ───────────────────────────────────────────────────────────────���────
         printSection("Pattern 2 — Factory Method (EmployeeFactory)");
 
         Employee factoryPermanent = EmployeeFactory.createPermanentEmployee(

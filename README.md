@@ -7,17 +7,21 @@ including **sealed class hierarchies**, **records**, **stream pipelines**, **enc
 **abstraction**, and **inheritance**, organised into five distinct layers following the
 **Controller → Service → Repository** architecture.
 
-It applies all five **Creational Design Patterns** (GoF) wherever object construction
+It applies **Creational, Behavioural, and Structural Design Patterns** (GoF) wherever
 complexity justifies them, and adds a dedicated **Salary Analytics** sub-system built
 entirely on Java Stream pipelines (no loops), plus a **Global Exception Handler** that
 centralises all error mapping across the exception hierarchy.
 
-| Pattern              | Applied To                                          | Benefit                                                       |
-|----------------------|-----------------------------------------------------|---------------------------------------------------------------|
-| **Builder**          | `PermanentEmployee`, `ContractEmployee`             | Readable, step-by-step construction of complex domain objects |
-| **Factory Method**   | `EmployeeFactory`                                   | Centralised, named creation hiding concrete subclass details  |
-| **Singleton**        | `PayrollStrategyRegistry`                           | One shared, fully-wired strategy registry across the app      |
-| **Abstract Factory** | `ApplicationFactory` / `InMemoryApplicationFactory` | Wires the entire controller/service/repo stack in one place   |
+| Pattern                   | Applied To                                          | Benefit                                                       |
+|---------------------------|-----------------------------------------------------|---------------------------------------------------------------|
+| **Builder**               | `PermanentEmployee`, `ContractEmployee`             | Readable, step-by-step construction of complex domain objects |
+| **Factory Method**        | `EmployeeFactory`                                   | Centralised, named creation hiding concrete subclass details  |
+| **Singleton**             | `PayrollStrategyRegistry`                           | One shared, fully-wired strategy registry across the app      |
+| **Abstract Factory**      | `ApplicationFactory` / `InMemoryApplicationFactory` | Wires the entire controller/service/repo stack in one place   |
+| **Strategy**              | `PayrollStrategy` + `PayrollStrategyRegistry`       | Open/Closed: new employee type = register one new strategy    |
+| **Global Exception Handler** | `GlobalExceptionHandler`                         | Central mapping; controllers need only one catch block each   |
+| **Comparator Chaining**   | `SalaryAnalyticsServiceImpl`                        | Total deterministic order; no ties; declarative composition   |
+| **Three-Tier Validation** | `EmployeeValidationService`                         | Layered rules independently testable at each tier             |
 
 ---
 
@@ -74,7 +78,7 @@ The **Controller layer** is the only entry point for callers. It:
 
 ```
 src/main/java/com/example/helloworld/
-├── App.java                                        — Entry point / demo runner (Parts 1–5)
+├── App.java                                        — Entry point / demo runner (Parts 1–6)
 ├── factory/                                        — ★ Abstract Factory
 │   ├── ApplicationFactory.java                     — Abstract factory interface
 │   └── InMemoryApplicationFactory.java             — Concrete factory: wires repo + validator + dept IDs
@@ -100,7 +104,7 @@ src/main/java/com/example/helloworld/
 ├── repository/
 │   ├── EmployeeRepository.java                     — Interface: repository contract
 │   ├── EmployeeKey.java                            — Custom HashMap key (id + email)
-│   ├── DepartmentKey.java                          — Record-based HashMap key
+│   ��── DepartmentKey.java                          — Record-based HashMap key
 │   └── inmemory/
 │       └── InMemoryEmployeeRepository.java         — Collections-backed implementation
 ├── service/
@@ -302,7 +306,7 @@ void validate(Employee employee)
 EmployeeException  (base checked)
     ├── DuplicateEmployeeException   — id already exists on add
     ├── DuplicateEmailException      — email already taken on add/update
-    ├─��� EmployeeNotFoundException    — id/email not found on update/remove/find
+    ├── EmployeeNotFoundException    — id/email not found on update/remove/find
     ├── DepartmentNotFoundException  — departmentId not in known-departments set  ★ NEW
     ├── InvalidEmployeeDataException — field value fails a repository-level rule
     ├── PayrollException             — payroll calculation failure
@@ -558,8 +562,7 @@ Collections-backed implementation with **secondary indexes** for O(1) lookups.
 
 | Index             | Type                                   | Purpose                                   |
 |-------------------|----------------------------------------|-------------------------------------------|
-| `store`           | `HashMap<EmployeeKey, Employee>`       | Primary store                             |
-| `idIndex`         | `HashMap<Integer, EmployeeKey>`        | id → key reverse index                    |
+| `store`           | `HashMap<Integer, Employee>`           | Primary store — keyed directly by `id`    |
 | `emailIndex`      | `HashMap<String, Integer>`             | email → id (O(1) uniqueness checks)       |
 | `departmentIndex` | `HashMap<DepartmentKey, Set<Integer>>` | dept → Set of ids (O(1) dept queries)     |
 
@@ -753,7 +756,7 @@ mvn compile
 # Run all 250 tests
 mvn test
 
-# Run the App demo (Parts 1–5)
+# Run the App demo (Parts 1–6)
 mvn exec:java
 ```
 

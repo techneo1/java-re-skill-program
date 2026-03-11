@@ -1,12 +1,7 @@
 package com.example.helloworld.service;
 
-import com.example.helloworld.domain.ContractEmployee;
 import com.example.helloworld.domain.Employee;
 import com.example.helloworld.domain.PayrollRecord;
-import com.example.helloworld.domain.PermanentEmployee;
-import com.example.helloworld.domain.payroll.ContractEmployeePayrollStrategy;
-import com.example.helloworld.domain.payroll.PayrollStrategy;
-import com.example.helloworld.domain.payroll.PermanentEmployeePayrollStrategy;
 import com.example.helloworld.exception.PayrollException;
 
 import java.time.LocalDate;
@@ -40,8 +35,7 @@ public class PayrollServiceImpl implements PayrollService {
             throws PayrollException {
         Objects.requireNonNull(employee,     "employee must not be null");
         Objects.requireNonNull(payrollMonth, "payrollMonth must not be null");
-        PayrollStrategy strategy = resolver.resolve(employee);
-        return strategy.calculate(recordId, employee, payrollMonth);
+        return resolver.resolve(employee).calculate(recordId, employee, payrollMonth);
     }
 
     @Override
@@ -60,9 +54,5 @@ public class PayrollServiceImpl implements PayrollService {
             }
         }
         return List.copyOf(results);
-    }
-
-    private static PayrollStrategyResolver defaultRegistry() {
-        return PayrollStrategyRegistry.getInstance();
     }
 }
