@@ -45,16 +45,19 @@ public record EmployeeSummaryDTO(
      * only permits {@code PermanentEmployee} and {@code ContractEmployee}.
      */
     public static EmployeeSummaryDTO from(Employee employee) {
-        // switch expression over the sealed hierarchy — exhaustive, no default needed
-        String extraInfo = switch (employee) {
-            case PermanentEmployee pe -> "gratuityEligible=" + pe.isGratuityEligible();
-            case ContractEmployee  ce -> "contractEnds="    + ce.getContractEndDate();
-        };
+        String extraInfo;
+        String employeeType;
 
-        String employeeType = switch (employee) {
-            case PermanentEmployee ignored -> "PERMANENT";
-            case ContractEmployee  ignored -> "CONTRACT";
-        };
+        if (employee instanceof PermanentEmployee pe) {
+            extraInfo    = "gratuityEligible=" + pe.isGratuityEligible();
+            employeeType = "PERMANENT";
+        } else if (employee instanceof ContractEmployee ce) {
+            extraInfo    = "contractEnds=" + ce.getContractEndDate();
+            employeeType = "CONTRACT";
+        } else {
+            throw new IllegalArgumentException(
+                    "Unknown Employee subtype: " + employee.getClass().getSimpleName());
+        }
 
         return new EmployeeSummaryDTO(
                 employee.getId(),
@@ -68,4 +71,3 @@ public record EmployeeSummaryDTO(
         );
     }
 }
-
