@@ -1,4 +1,4 @@
-# Java Re-Skill Program — Layered Design with OOP, Creational Patterns & Stream Analytics
+# Java Re-Skill Program — Layered Design with OOP, SOLID Principles, Creational Patterns & Stream Analytics
 
 ## Overview
 
@@ -7,10 +7,18 @@ including **sealed class hierarchies**, **records**, **stream pipelines**, **enc
 **abstraction**, and **inheritance**, organised into five distinct layers following the
 **Controller → Service → Repository** architecture.
 
-It applies **Creational, Behavioural, and Structural Design Patterns** (GoF) wherever
-complexity justifies them, and adds a dedicated **Salary Analytics** sub-system built
-entirely on Java Stream pipelines (no loops), plus a **Global Exception Handler** that
-centralises all error mapping across the exception hierarchy.
+It applies **SOLID design principles** throughout every layer, uses **Creational, Behavioural,
+and Structural Design Patterns** (GoF) wherever complexity justifies them, and adds a dedicated
+**Salary Analytics** sub-system built entirely on Java Stream pipelines (no loops), plus a
+**Global Exception Handler** that centralises all error mapping across the exception hierarchy.
+
+| SOLID Principle                  | Applied To                                                          | Benefit                                                          |
+|----------------------------------|---------------------------------------------------------------------|------------------------------------------------------------------|
+| **S** — Single Responsibility    | `EmployeeValidationService`, `GlobalExceptionHandler`, each Strategy | Every class has one well-defined reason to change               |
+| **O** — Open / Closed            | `PayrollStrategy` + `PayrollStrategyRegistry`                       | Add new employee types without modifying existing code          |
+| **L** — Liskov Substitution      | `PermanentEmployee` / `ContractEmployee`, all `*Impl` classes       | Subtypes are fully interchangeable with their base type         |
+| **I** — Interface Segregation    | `EmployeeService`, `PayrollService`, `SalaryAnalyticsService`, …    | Clients depend only on the methods they actually use            |
+| **D** — Dependency Inversion     | `EmployeeController`, `PayrollServiceImpl`, `ApplicationFactory`    | All layers depend on abstractions, never on concrete classes    |
 
 | Pattern                   | Applied To                                          | Benefit                                                       |
 |---------------------------|-----------------------------------------------------|---------------------------------------------------------------|
@@ -22,6 +30,92 @@ centralises all error mapping across the exception hierarchy.
 | **Global Exception Handler** | `GlobalExceptionHandler`                         | Central mapping; controllers need only one catch block each   |
 | **Comparator Chaining**   | `SalaryAnalyticsServiceImpl`                        | Total deterministic order; no ties; declarative composition   |
 | **Three-Tier Validation** | `EmployeeValidationService`                         | Layered rules independently testable at each tier             |
+
+---
+
+## SOLID Principles
+
+### S — Single Responsibility
+> **One class, one job.**
+
+| Class | Its one job |
+|---|---|
+| `EmployeeValidationService` | Validate employees |
+| `GlobalExceptionHandler` | Map exceptions to error responses |
+| `PayrollServiceImpl` | Delegate to the right payroll strategy |
+| `PermanentEmployeePayrollStrategy` | Calculate tax for permanent employees |
+| `InMemoryEmployeeRepository` | Store and retrieve employees |
+
+```java
+// PayrollServiceImpl does ONE thing — delegates. It never calculates tax.
+return resolver.resolve(employee).calculate(recordId, employee, payrollMonth);
+```
+
+---
+
+### O — Open/Closed
+> **Add new behaviour without changing existing code.**
+
+To support a new employee type, you only add a new file and register it:
+
+```java
+// New file — nothing else changes
+public class FreelancerPayrollStrategy implements PayrollStrategy { ... }
+
+// One-line registration at startup
+PayrollStrategyRegistry.getInstance().register(FreelancerEmployee.class, new FreelancerPayrollStrategy());
+```
+
+`PayrollServiceImpl`, `PayrollStrategyRegistry`, and all controllers are **never touched**.
+
+---
+
+### L — Liskov Substitution
+> **A subtype can always replace its parent without breaking anything.**
+
+| Used as | Actual object underneath |
+|---|---|
+| `Employee` | `PermanentEmployee` or `ContractEmployee` |
+| `EmployeeRepository` | `InMemoryEmployeeRepository` |
+| `ValidationService` | `EmployeeValidationService` |
+| `PayrollStrategyResolver` | `PayrollStrategyRegistry` |
+
+```java
+// Controller only knows the interface — any impl works correctly
+validator.validate(employee); // works with ANY ValidationService
+```
+
+---
+
+### I — Interface Segregation
+> **Each interface covers only what its client needs.**
+
+| Client | Only depends on |
+|---|---|
+| `EmployeeController` | `EmployeeService` + `ValidationService` |
+| `PayrollController` | `PayrollService` |
+| `SalaryAnalyticsController` | `SalaryAnalyticsService` + `EmployeeService` |
+| `PayrollServiceImpl` | `PayrollStrategyResolver` (single method) |
+
+No client is forced to depend on methods it doesn't use.
+
+---
+
+### D — Dependency Inversion
+> **Depend on interfaces, not concrete classes.**
+
+| Class | Injects (interface) | Never sees (concrete) |
+|---|---|---|
+| `EmployeeController` | `EmployeeService`, `ValidationService` | `EmployeeServiceImpl`, `EmployeeValidationService` |
+| `PayrollServiceImpl` | `PayrollStrategyResolver` | `PayrollStrategyRegistry` |
+| `App.java` | `ApplicationFactory` | `InMemoryApplicationFactory` |
+
+```java
+// PayrollServiceImpl — uses the interface; concrete is injected from outside
+public PayrollServiceImpl(PayrollStrategyResolver resolver) {
+    this.resolver = resolver; // could be a mock in tests, registry in production
+}
+```
 
 ---
 
@@ -104,7 +198,7 @@ src/main/java/com/example/helloworld/
 ├── repository/
 │   ├── EmployeeRepository.java                     — Interface: repository contract
 │   ├── EmployeeKey.java                            — Custom HashMap key (id + email)
-│   ��── DepartmentKey.java                          — Record-based HashMap key
+│   ��─�� DepartmentKey.java                          — Record-based HashMap key
 │   └── inmemory/
 │       └── InMemoryEmployeeRepository.java         — Collections-backed implementation
 ├── service/
@@ -544,6 +638,7 @@ hierarchy to derive `employeeType` and `extraInfo` — exhaustive, no default ne
 | `PayrollRecord`           | Immutable payroll result (gross, tax, net, timestamp) |
 | `DepartmentSalaryReport`  | Per-dept salary aggregates — see analytics section    |
 | `SalaryAnalyticsReport`   | Full analytics bundle incl. `byRole` — see analytics  |
+| `EmployeeKey`            | Hand-written — `id` + `email`                          |
 
 ### Payroll Strategy (`domain/payroll/`)
 
