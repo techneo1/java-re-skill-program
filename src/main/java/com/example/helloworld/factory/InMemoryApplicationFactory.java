@@ -17,10 +17,11 @@ import com.example.helloworld.service.*;
 public class InMemoryApplicationFactory implements ApplicationFactory {
 
     // Lazily-initialised, cached instances
-    private EmployeeRepository repository;
-    private EmployeeService    employeeService;
-    private ValidationService  validationService;
-    private PayrollService     payrollService;
+    private EmployeeRepository     repository;
+    private EmployeeService        employeeService;
+    private ValidationService      validationService;
+    private PayrollService         payrollService;
+    private SalaryAnalyticsService analyticsService;
 
     @Override
     public EmployeeRepository createEmployeeRepository() {
@@ -64,5 +65,12 @@ public class InMemoryApplicationFactory implements ApplicationFactory {
     public PayrollController createPayrollController() {
         return new PayrollController(createPayrollService());
     }
-}
 
+    @Override
+    public SalaryAnalyticsService createSalaryAnalyticsService() {
+        if (analyticsService == null) {
+            analyticsService = new SalaryAnalyticsServiceImpl(createEmployeeService());
+        }
+        return analyticsService;
+    }
+}

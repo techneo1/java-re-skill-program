@@ -56,6 +56,9 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.12.1</version>
+                <configuration>
+                    <enablePreview>true</enablePreview>
+                </configuration>
             </plugin>
 
             <!-- Run: mvn exec:java -->
@@ -73,6 +76,9 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.2.5</version>
+                <configuration>
+                    <argLine>@{argLine} --enable-preview</argLine>
+                </configuration>
             </plugin>
 
             <!-- Coverage: JaCoCo -->

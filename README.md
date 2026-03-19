@@ -1,4 +1,4 @@
-# Java Re-Skill Program — Layered Design with OOP, Creational Patterns & JDBC
+# Java Re-Skill Program — Layered Design with OOP, Creational Patterns, JDBC & Stream Analytics
 
 ## Overview
 
@@ -17,8 +17,9 @@ complexity justifies them:
 | **Singleton**        | `PayrollStrategyRegistry`                       | One shared, fully-wired strategy registry across the app      |
 | **Abstract Factory** | `ApplicationFactory` / `InMemoryApplicationFactory` / `JdbcApplicationFactory` | Wires the entire controller/service/repo stack in one place |
 
-And a dedicated **JDBC layer** (`db/`) that demonstrates all four core JDBC concepts:
-`Connection`, `PreparedStatement`, `ResultSet`, and **Transactions**.
+And two dedicated feature layers:
+- **JDBC layer** (`db/`) — `Connection`, `PreparedStatement`, `ResultSet`, and **Transactions**
+- **Salary Analytics layer** (`service/SalaryAnalyticsService`) — **Stream pipelines**, **switch expressions** over the sealed hierarchy, and **Records as DTOs**
 
 ---
 
@@ -33,14 +34,14 @@ App
  │        │           │                                                └── InMemoryEmployeeRepository
  │        │           └── (validates via) ValidationService
  │        │
- │        └── creates PayrollController   ──►  PayrollService   ──►  PayrollStrategyResolver
- │                                                                      └── [Singleton] PayrollStrategyRegistry
+ │        ├── creates PayrollController   ──►  PayrollService   ──►  PayrollStrategyResolver
+ │        │                                                            └── [Singleton] PayrollStrategyRegistry
+ │        │
+ │        └── creates SalaryAnalyticsService  ──►  EmployeeService (shared)
  │
  ├── [Abstract Factory] JdbcApplicationFactory              ← JDBC stack (drop-in swap)
- │        │
- │        ├── creates EmployeeController  ──►  EmployeeService  ──►  EmployeeRepository
- │        │                                                            └── JdbcEmployeeDao
- │        └── creates PayrollController   ──►  PayrollService   ──►  PayrollStrategyResolver
+ │        │  (same shape as above — repository backed by JdbcEmployeeDao)
+ │        └── creates SalaryAnalyticsService  ──►  EmployeeService (shared)
  │
  ├── [JDBC Layer] db/
  │        ├── DataSourceFactory              ← Connection management
@@ -48,7 +49,7 @@ App
  │        ├── JdbcPayrollDao                 ← PreparedStatement + ResultSet (payroll_records table)
  │        └── PayrollTransactionService      ← commit / rollback across multiple DAOs
  │
- └── [Factory Method] EmployeeFactory
+ ���── [Factory Method] EmployeeFactory
           ├── createPermanentEmployee(...)  ──►  [Builder] PermanentEmployee.builder().build()
           └── createContractEmployee(...)   ──►  [Builder] ContractEmployee.builder().build()
 ```
@@ -85,6 +86,8 @@ src/main/java/com/example/helloworld/
 │   ├── EmployeeFactory.java                        — ★ Factory Method: named employee creation
 │   ├── Department.java                             — Record (immutable DTO)
 │   ├── PayrollRecord.java                          — Record (immutable DTO)
+│   ├── DepartmentSalaryReport.java                 — ★ Record DTO: per-dept salary statistics
+│   ├── EmployeeSummaryDTO.java                     — ★ Record DTO: lightweight employee view; from() uses switch expr
 │   └── payroll/
 │       ├── PayrollStrategy.java                    — Interface: payroll calculation strategy
 │       ├── PermanentEmployeePayrollStrategy.java   — Impl: 20% tax for permanent employees
@@ -103,7 +106,9 @@ src/main/java/com/example/helloworld/
 │   ├── PayrollService.java                         — Interface: payroll processing
 │   ├── PayrollServiceImpl.java                     — Payroll orchestration (uses a resolver)
 │   ├── PayrollStrategyResolver.java                — Interface: resolves strategy for an employee (DIP)
-│   └── PayrollStrategyRegistry.java                — ★ Singleton registry/lookup (OCP)
+│   ├── PayrollStrategyRegistry.java                — ★ Singleton registry/lookup (OCP)
+│   ├── SalaryAnalyticsService.java                 — ★ Interface: 5 salary analytics operations
+│   └── SalaryAnalyticsServiceImpl.java             — ★ Stream pipeline + switch expr implementation
 └── exception/
     ├── EmployeeException.java                      — Base checked exception
     ├── DuplicateEmployeeException.java
@@ -123,13 +128,67 @@ src/test/java/com/example/helloworld/
 │   ├── JdbcPayrollDaoTest.java                     — save, find, delete, rollback visibility
 │   └── PayrollTransactionServiceTest.java          — commit batch, rollback on failure
 ├── domain/
+│   ├── DepartmentSalaryReportTest.java             — ★ Record accessors, equals/hashCode, validation
+│   ├── EmployeeSummaryDTOTest.java                 — ★ from() switch expr, field copy, validation
 │   └── payroll/
 │       └── PayrollStrategyTest.java
 └── service/
     ├── EmployeeServiceImplTest.java
     ├── EmployeeValidationServiceTest.java
     ├── PayrollServiceImplTest.java
-    └── PayrollStrategyRegistryTest.java
+    ├── PayrollStrategyRegistryTest.java
+    ├── SalaryAnalyticsServiceImplTest.java         — ★ All 5 analytics: happy paths + edge cases
+    └── SalaryAnalyticsServiceImplGroupByRoleTest.java — ★ Mixed types, boundary values, tie-breaking
+```
+
+---
+
+## Salary Analytics Layer
+
+`SalaryAnalyticsService` + `SalaryAnalyticsServiceImpl` add five read-only analytics
+operations on top of the existing `EmployeeService`. All five use **Stream pipelines**
+(no explicit loops), **switch expressions** over the sealed `Employee` hierarchy, and
+**Records** as immutable result DTOs.
+
+### Analytics DTOs (Records)
+
+#### `DepartmentSalaryReport`
+
+Immutable summary of salary statistics for one department. Produced by `salaryByDepartment()`.
+
+| Field           | Type     | Description                          |
+|-----------------|----------|--------------------------------------|
+| `departmentId`  | `int`    | Department identifier                |
+| `headCount`     | `long`   | Number of employees in department    |
+| `totalSalary`   | `double` | Sum of all salaries                  |
+| `averageSalary` | `double` | Mean salary                          |
+| `minSalary`     | `double` | Lowest individual salary             |
+| `maxSalary`     | `double` | Highest individual salary            |
+
+The compact constructor validates all fields (no negative values, `minSalary ≤ maxSalary`).
+
+#### `EmployeeSummaryDTO`
+
+Lightweight immutable view of a single employee. Used in `topNBySalary()` and `partitionByStatus()`.
+
+| Field          | Type             | Description                                        |
+|----------------|------------------|----------------------------------------------------|
+| `id`           | `int`            | Employee ID                                        |
+| `name`         | `String`         | Full name                                          |
+| `role`         | `String`         | Job role                                           |
+| `departmentId` | `int`            | Department reference                               |
+| `salary`       | `double`         | Current salary                                     |
+| `status`       | `EmployeeStatus` | `ACTIVE` or `INACTIVE`                             |
+| `employeeType` | `String`         | `"PERMANENT"` or `"CONTRACT"` — derived via switch |
+
+The `from(Employee)` factory uses a **switch expression** on the sealed hierarchy:
+
+```java
+// Exhaustive — compiler enforces all permits subtypes are handled; no default needed
+String employeeType = switch (employee) {
+    case PermanentEmployee pe -> "PERMANENT";
+    case ContractEmployee  ce -> "CONTRACT";
+};
 ```
 
 ---
@@ -482,32 +541,22 @@ public enum EmployeeStatus {
 
 ---
 
-### Payroll Strategy (`domain/payroll/`)
+### `DepartmentSalaryReport` (Record — Analytics DTO)
 
-Implements the **Strategy pattern** — the calculation algorithm is selected at runtime based
-on the concrete employee type.
+Immutable result of `salaryByDepartment()`. See the [Salary Analytics](#salary-analytics-layer) section for full field documentation.
 
-```
-PayrollStrategy                       (interface)
-    ├── PermanentEmployeePayrollStrategy   — tax rate 20%
-    └── ContractEmployeePayrollStrategy    — tax rate 10%; rejects expired contracts
-```
+- Compact constructor validates all numeric invariants (`minSalary ≤ maxSalary`, no negatives).
+- Auto-generated `equals()`, `hashCode()`, and `toString()` by the Java Record mechanism.
 
-#### `PayrollStrategy` (Interface)
+---
 
-```java
-PayrollRecord calculate(int recordId, Employee employee, LocalDate payrollMonth)
-        throws PayrollException;
-```
+### `EmployeeSummaryDTO` (Record — Analytics DTO)
 
-#### `PermanentEmployeePayrollStrategy`
-- Tax rate: **20%** of gross salary.
-- Throws `PayrollException` if passed a non-`PermanentEmployee`.
+Lightweight immutable projection of an `Employee`. Built via `EmployeeSummaryDTO.from(Employee)`.
 
-#### `ContractEmployeePayrollStrategy`
-- Tax rate: **10%** of gross salary.
-- Throws `PayrollException` if the contract has expired (`isExpired() == true`).
-- Throws `PayrollException` if passed a non-`ContractEmployee`.
+- `from()` uses a **switch expression** over the **sealed `Employee` hierarchy** to set `employeeType`.
+- Compact constructor validates all fields (non-blank strings, non-negative salary, non-null status).
+- Auto-generated `equals()`, `hashCode()`, and `toString()` by the Java Record mechanism.
 
 ---
 
@@ -663,6 +712,27 @@ PayrollStrategyRegistry.getInstance()
 
 ---
 
+### `SalaryAnalyticsService` / `SalaryAnalyticsServiceImpl`
+
+Read-only salary analytics over the full employee roster. Delegates data access entirely
+to `EmployeeService` — no direct repository dependency.
+
+```
+SalaryAnalyticsService (interface)
+    └── SalaryAnalyticsServiceImpl   — Stream pipelines + switch expressions
+```
+
+| Method                        | Stream API used                                   | Returns                                       |
+|-------------------------------|---------------------------------------------------|-----------------------------------------------|
+| `salaryByDepartment()`        | `groupingBy` + `summarizingDouble`                | `Map<Integer, DepartmentSalaryReport>` sorted |
+| `topNBySalary(n)`             | `sorted` + `limit` + `map`                        | `List<EmployeeSummaryDTO>` descending         |
+| `top5BySalary()`              | default — delegates to `topNBySalary(5)`          | `List<EmployeeSummaryDTO>`                    |
+| `averageSalaryByRole()`       | `groupingBy` + `averagingDouble`                  | `Map<String, Double>` sorted by role name     |
+| `partitionByStatus()`         | `partitioningBy` + `mapping`                      | `Map<Boolean, List<EmployeeSummaryDTO>>`      |
+| `averageSalaryByEmployeeType()`| `groupingBy(switch expr)` + `averagingDouble`    | `Map<String, Double>` sorted by type name     |
+
+---
+
 ## Exception Layer
 
 All exceptions extend `EmployeeException` (checked), allowing callers to catch either
@@ -722,29 +792,58 @@ from `Employee` via `super(...)`, extending it with their own fields and behavio
 `PayrollStrategy` is selected at runtime. With the resolver/registry in place, new employee
 types can be supported by registration without modifying `PayrollServiceImpl`.
 
-### 🟰 `equals()` and `hashCode()`
+### 🌊 Stream Pipelines (no explicit loops)
+Every analytics operation in `SalaryAnalyticsServiceImpl` is a single declarative
+Stream pipeline — no `for`/`while` loops anywhere in the analytics layer.
 
-| Class               | Strategy                                  |
-|---------------------|-------------------------------------------|
-| `Employee`          | Identity by `id`                          |
-| `PermanentEmployee` | Parent equality + `gratuityEligible`      |
-| `ContractEmployee`  | Parent equality + `contractEndDate`       |
-| `Department`        | Auto-generated by Record (all fields)     |
-| `PayrollRecord`     | Auto-generated by Record (all fields)     |
-| `EmployeeKey`       | Hand-written — `id` + `email`             |
-| `DepartmentKey`     | Auto-generated by Record — `id` only      |
+| Collector used         | Where                              | What it does                              |
+|------------------------|------------------------------------|-------------------------------------------|
+| `groupingBy`           | `salaryByDepartment`, `averageSalaryByRole`, `averageSalaryByEmployeeType` | Groups elements by a key function |
+| `summarizingDouble`    | `salaryByDepartment`               | count + sum + avg + min + max in one pass |
+| `averagingDouble`      | `averageSalaryByRole`, `averageSalaryByEmployeeType` | Mean of a double-valued field  |
+| `partitioningBy`       | `partitionByStatus`                | Always produces `{true:[...], false:[...]}` |
+| `mapping`              | `partitionByStatus`                | Projects each element before collecting  |
+| `sorted` + `limit`     | `topNBySalary`                     | Top-N without loading all into memory    |
+
+### 🔀 Switch Expressions on Sealed Hierarchies
+The sealed `Employee` hierarchy (`PermanentEmployee` | `ContractEmployee`) is matched
+exhaustively in switch expressions — no `default` branch, and a missing subtype is a
+**compile error**, not a runtime gap.
+
+```java
+// In EmployeeSummaryDTO.from() — converts an Employee to a typed DTO
+String tag = switch (employee) {
+    case PermanentEmployee pe -> "PERMANENT";
+    case ContractEmployee  ce -> "CONTRACT";
+};
+
+// In SalaryAnalyticsServiceImpl.averageSalaryByEmployeeType() — used as a grouping classifier
+emp -> switch (emp) {
+    case PermanentEmployee pe -> "PERMANENT";
+    case ContractEmployee  ce -> "CONTRACT";
+}
+```
 
 ### 📋 Records (DTOs & Keys)
-`Department`, `PayrollRecord`, and `DepartmentKey` are **immutable**. Java Records
-auto-generate `equals()`, `hashCode()`, `toString()`, and accessor methods,
-reducing boilerplate while enforcing immutability.
+`Department`, `PayrollRecord`, `DepartmentKey`, **`DepartmentSalaryReport`**, and
+**`EmployeeSummaryDTO`** are all **immutable**. Java Records auto-generate
+`equals()`, `hashCode()`, `toString()`, and accessor methods, eliminating boilerplate
+while enforcing immutability.
+
+| Record                   | Used as                  | Auto-generates              |
+|--------------------------|--------------------------|-----------------------------|
+| `Department`             | Domain entity DTO        | equals, hashCode, toString  |
+| `PayrollRecord`          | Payroll result DTO       | equals, hashCode, toString  |
+| `DepartmentKey`          | HashMap key              | equals, hashCode            |
+| `DepartmentSalaryReport` | Analytics result DTO     | equals, hashCode, toString  |
+| `EmployeeSummaryDTO`     | Analytics result DTO     | equals, hashCode, toString  |
 
 ---
 
 ## Build & Run
 
 ```bash
-# Compile
+# Compile  (--enable-preview required for pattern matching in switch on Java 17)
 mvn compile
 
 # Run tests
@@ -755,3 +854,5 @@ mvn exec:java
 ```
 
 > Requires **Java 17+** and **Maven 3.x**.
+> `--enable-preview` is configured in `pom.xml` for both the compiler and Surefire plugins
+> to enable pattern matching in switch expressions on Java 17.

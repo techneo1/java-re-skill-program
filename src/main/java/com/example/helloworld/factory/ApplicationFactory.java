@@ -42,5 +42,7 @@ public interface ApplicationFactory {
 
     /** Creates a fully-wired {@link PayrollController}. */
     PayrollController createPayrollController();
-}
 
+    /** Creates a {@link SalaryAnalyticsService} wired to this factory's employee service. */
+    SalaryAnalyticsService createSalaryAnalyticsService();
+}

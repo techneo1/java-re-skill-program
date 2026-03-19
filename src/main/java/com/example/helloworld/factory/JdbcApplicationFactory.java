@@ -27,10 +27,11 @@ public class JdbcApplicationFactory implements ApplicationFactory {
     private final DataSourceFactory dsf;
 
     // Lazily-initialised, cached instances
-    private EmployeeRepository repository;
-    private EmployeeService    employeeService;
-    private ValidationService  validationService;
-    private PayrollService     payrollService;
+    private EmployeeRepository     repository;
+    private EmployeeService        employeeService;
+    private ValidationService      validationService;
+    private PayrollService         payrollService;
+    private SalaryAnalyticsService analyticsService;
 
     /**
      * @param jdbcUrl  JDBC connection URL
@@ -92,5 +93,12 @@ public class JdbcApplicationFactory implements ApplicationFactory {
     public PayrollController createPayrollController() {
         return new PayrollController(createPayrollService());
     }
-}
 
+    @Override
+    public SalaryAnalyticsService createSalaryAnalyticsService() {
+        if (analyticsService == null) {
+            analyticsService = new SalaryAnalyticsServiceImpl(createEmployeeService());
+        }
+        return analyticsService;
+    }
+}
