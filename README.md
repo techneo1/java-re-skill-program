@@ -1,4 +1,4 @@
-# Java Re-Skill Program — Layered Design with OOP & Creational Design Patterns
+# Java Re-Skill Program — Layered Design with OOP, Creational Patterns & JDBC
 
 ## Overview
 
@@ -15,7 +15,10 @@ complexity justifies them:
 | **Builder**          | `PermanentEmployee`, `ContractEmployee`         | Readable, step-by-step construction of complex domain objects |
 | **Factory Method**   | `EmployeeFactory`                               | Centralised, named creation hiding concrete subclass details  |
 | **Singleton**        | `PayrollStrategyRegistry`                       | One shared, fully-wired strategy registry across the app      |
-| **Abstract Factory** | `ApplicationFactory` / `InMemoryApplicationFactory` | Wires the entire controller/service/repo stack in one place  |
+| **Abstract Factory** | `ApplicationFactory` / `InMemoryApplicationFactory` / `JdbcApplicationFactory` | Wires the entire controller/service/repo stack in one place |
+
+And a dedicated **JDBC layer** (`db/`) that demonstrates all four core JDBC concepts:
+`Connection`, `PreparedStatement`, `ResultSet`, and **Transactions**.
 
 ---
 
@@ -24,7 +27,7 @@ complexity justifies them:
 ```
 App
  │
- ├── [Abstract Factory] InMemoryApplicationFactory
+ ├── [Abstract Factory] InMemoryApplicationFactory          ← in-memory stack (default)
  │        │
  │        ├── creates EmployeeController  ──►  EmployeeService  ──►  EmployeeRepository
  │        │           │                                                └── InMemoryEmployeeRepository
@@ -32,8 +35,18 @@ App
  │        │
  │        └── creates PayrollController   ──►  PayrollService   ──►  PayrollStrategyResolver
  │                                                                      └── [Singleton] PayrollStrategyRegistry
- │                                                                            ├── PermanentEmployeePayrollStrategy
- │                                                                            └── ContractEmployeePayrollStrategy
+ │
+ ├── [Abstract Factory] JdbcApplicationFactory              ← JDBC stack (drop-in swap)
+ │        │
+ │        ├── creates EmployeeController  ──►  EmployeeService  ──►  EmployeeRepository
+ │        │                                                            └── JdbcEmployeeDao
+ │        └── creates PayrollController   ──►  PayrollService   ──►  PayrollStrategyResolver
+ │
+ ├── [JDBC Layer] db/
+ │        ├── DataSourceFactory              ← Connection management
+ │        ├── JdbcEmployeeDao                ← PreparedStatement + ResultSet (employees table)
+ │        ├── JdbcPayrollDao                 ← PreparedStatement + ResultSet (payroll_records table)
+ │        └── PayrollTransactionService      ← commit / rollback across multiple DAOs
  │
  └── [Factory Method] EmployeeFactory
           ├── createPermanentEmployee(...)  ──►  [Builder] PermanentEmployee.builder().build()
@@ -54,10 +67,16 @@ src/main/java/com/example/helloworld/
 ├── App.java                                        — Entry point / demo runner
 ├── factory/                                        — ★ Abstract Factory
 │   ├── ApplicationFactory.java                     — Abstract factory interface
-│   └── InMemoryApplicationFactory.java             — Concrete factory: in-memory stack
+│   ├── InMemoryApplicationFactory.java             — Concrete factory: in-memory stack
+│   └── JdbcApplicationFactory.java                 — Concrete factory: JDBC stack (drop-in swap)
 ├── controller/
 │   ├── EmployeeController.java                     — Handles employee requests; catches all exceptions
 │   └── PayrollController.java                      — Handles payroll requests; catches all exceptions
+├── db/                                             — ★ JDBC Layer
+│   ├── DataSourceFactory.java                      — Connection creation, schema DDL bootstrap
+│   ├── JdbcEmployeeDao.java                        — PreparedStatement + ResultSet: employees table
+│   ├── JdbcPayrollDao.java                         — PreparedStatement + ResultSet: payroll_records table
+│   └── PayrollTransactionService.java              — commit / rollback across JdbcPayrollDao + PayrollService
 ├── domain/
 │   ├── EmployeeStatus.java                         — Enum: ACTIVE / INACTIVE
 │   ├── Employee.java                               — Sealed abstract base class
@@ -96,8 +115,13 @@ src/main/java/com/example/helloworld/
 
 src/test/java/com/example/helloworld/
 ├── controller/
-│   ├── EmployeeControllerTest.java                 — Mockito tests for EmployeeController
-│   └── PayrollControllerTest.java                  — Mockito tests for PayrollController
+│   ├── EmployeeControllerTest.java
+│   └── PayrollControllerTest.java
+├── db/                                             — ★ JDBC integration tests (H2 in-memory)
+│   ├── DataSourceFactoryTest.java                  — Connection, autoCommit, schema DDL
+│   ├── JdbcEmployeeDaoTest.java                    — PreparedStatement / ResultSet, all CRUD + queries
+│   ├── JdbcPayrollDaoTest.java                     — save, find, delete, rollback visibility
+│   └── PayrollTransactionServiceTest.java          — commit batch, rollback on failure
 ├── domain/
 │   └── payroll/
 │       └── PayrollStrategyTest.java
@@ -110,105 +134,194 @@ src/test/java/com/example/helloworld/
 
 ---
 
-## Creational Design Patterns
+## JDBC Layer (`db/`)
 
-### ★ Builder — `PermanentEmployee` & `ContractEmployee`
+The `db` package teaches the four foundational JDBC concepts end-to-end using an H2
+in-memory database in tests and a swappable `DataSourceFactory` in production.
 
-**Problem:** Both employee classes have long constructors (8–9 parameters). Passing positional
-arguments is error-prone and unreadable.
+### Database Schema
 
-**Solution:** Each class exposes a static nested `Builder` that lets callers set only what
-they need, in any order, with a fluent API.
+Two tables are created automatically by `DataSourceFactory.initSchema()` (DDL uses
+`CREATE TABLE IF NOT EXISTS` — safe to call repeatedly):
 
-```java
-// Before — positional constructor, hard to read
-Employee alice = new PermanentEmployee(
-        1, "Alice Kumar", "alice@example.com", 10, "Engineer",
-        85_000, EmployeeStatus.ACTIVE, LocalDate.of(2020, 6, 1), true);
+```sql
+employees (
+    id                INT          PRIMARY KEY,
+    name              VARCHAR(100) NOT NULL,
+    email             VARCHAR(150) NOT NULL UNIQUE,
+    department_id     INT          NOT NULL,
+    role              VARCHAR(80)  NOT NULL,
+    salary            DOUBLE       NOT NULL,
+    status            VARCHAR(20)  NOT NULL,   -- 'ACTIVE' | 'INACTIVE'
+    joining_date      DATE         NOT NULL,
+    employee_type     VARCHAR(20)  NOT NULL,   -- 'PERMANENT' | 'CONTRACT'
+    gratuity_eligible BOOLEAN      DEFAULT FALSE,
+    contract_end_date DATE         DEFAULT NULL
+)
 
-// After — Builder: self-documenting, resilient to parameter reordering
-Employee alice = PermanentEmployee.builder()
-        .id(1).name("Alice Kumar").email("alice@example.com")
-        .departmentId(10).role("Engineer").salary(85_000)
-        .joiningDate(LocalDate.of(2020, 6, 1))
-        .gratuityEligible(true)
-        .build();
-
-// ContractEmployee Builder
-Employee carol = ContractEmployee.builder()
-        .id(3).name("Carol Menon").email("carol@example.com")
-        .departmentId(20).role("Designer").salary(60_000)
-        .joiningDate(LocalDate.of(2023, 1, 1))
-        .contractEndDate(LocalDate.of(2025, 12, 31))
-        .build();
-```
-
-> The default `status` is `EmployeeStatus.ACTIVE`. Call `.status(EmployeeStatus.INACTIVE)`
-> on the builder when you need to override it.
-
----
-
-### ★ Factory Method — `EmployeeFactory`
-
-**Problem:** Callers need to know which concrete subclass to instantiate and which builder
-fields to set — coupling them to implementation details.
-
-**Solution:** `EmployeeFactory` provides **named static factory methods** that encapsulate
-the builder calls behind an intent-revealing API. Callers depend only on `Employee`.
-
-```java
-// Permanent employee (always ACTIVE, gratuity flag explicit)
-Employee alice = EmployeeFactory.createPermanentEmployee(
-        1, "Alice Kumar", "alice@example.com",
-        10, "Engineer", 85_000,
-        LocalDate.of(2020, 6, 1), true);
-
-// Contract employee (always ACTIVE, dates validated internally)
-Employee carol = EmployeeFactory.createContractEmployee(
-        3, "Carol Menon", "carol@example.com",
-        20, "Designer", 60_000,
-        LocalDate.of(2023, 1, 1), LocalDate.of(2025, 12, 31));
-```
-
-**Adding a new employee type** only requires a new factory method in `EmployeeFactory` — no
-existing call-sites change.
-
----
-
-### ★ Singleton — `PayrollStrategyRegistry`
-
-**Problem:** `PayrollServiceImpl` created a brand-new `PayrollStrategyRegistry` and
-registered both strategies on every instantiation, wasting allocations and making the
-default registry inconsistent across multiple `PayrollServiceImpl` instances.
-
-**Solution:** `PayrollStrategyRegistry` uses the **Initialization-on-demand holder** idiom —
-the most idiomatic, thread-safe, lazy singleton in Java. A single shared instance is
-pre-wired with both default strategies and accessed via `getInstance()`.
-
-```java
-// One shared, fully-wired instance — lazy, thread-safe
-PayrollStrategyRegistry registry = PayrollStrategyRegistry.getInstance();
-```
-
-**Testability is preserved** — the public constructor is kept so unit tests can create
-isolated, empty registries without touching the singleton:
-
-```java
-// In tests — isolated registry, no shared state
-PayrollStrategyRegistry registry = new PayrollStrategyRegistry()
-        .register(PermanentEmployee.class, new PermanentEmployeePayrollStrategy());
-```
-
-**Extending the default registry** for a new employee type:
-
-```java
-PayrollStrategyRegistry.getInstance()
-        .register(MyNewEmployeeType.class, new MyNewPayrollStrategy());
+payroll_records (
+    id                  INT       PRIMARY KEY,
+    employee_id         INT       NOT NULL  REFERENCES employees(id),
+    gross_salary        DOUBLE    NOT NULL,
+    tax_amount          DOUBLE    NOT NULL,
+    net_salary          DOUBLE    NOT NULL,
+    payroll_month       DATE      NOT NULL,
+    processed_timestamp TIMESTAMP NOT NULL
+)
 ```
 
 ---
 
-### ★ Abstract Factory — `ApplicationFactory` / `InMemoryApplicationFactory`
+### 1 · Connection — `DataSourceFactory`
+
+`DataSourceFactory` wraps `DriverManager` and is the single point of connection creation
+for the whole `db` layer.
+
+```java
+DataSourceFactory dsf = new DataSourceFactory(
+        "jdbc:h2:mem:hrdb;DB_CLOSE_DELAY=-1", "sa", "");
+
+dsf.initSchema();                        // creates tables (IF NOT EXISTS)
+
+// Plain connection — autoCommit=true (each statement auto-committed)
+try (Connection con = dsf.getConnection()) {
+    // ... use con
+}
+
+// Transactional connection — autoCommit=false, caller must commit/rollback
+try (Connection con = dsf.getTransactionalConnection()) {
+    // ... use con
+    con.commit();
+}
+```
+
+| Method                        | autoCommit | Use case                                     |
+|-------------------------------|------------|----------------------------------------------|
+| `getConnection()`             | `true`     | Single-statement operations                  |
+| `getTransactionalConnection()`| `false`    | Multi-statement transactions (commit/rollback)|
+| `initSchema()`                | `true`     | DDL bootstrap — idempotent (`IF NOT EXISTS`) |
+
+---
+
+### 2 · PreparedStatement — `JdbcEmployeeDao` & `JdbcPayrollDao`
+
+Every DML statement and every parameterised query uses a `PreparedStatement`.
+**`Statement` is never used for user-supplied data** (only for schema DDL).
+
+```java
+// INSERT — bind by position, execute
+try (Connection con = dsf.getConnection();
+     PreparedStatement ps = con.prepareStatement(
+         "INSERT INTO employees (id, name, email, ...) VALUES (?, ?, ?, ...)")) {
+
+    ps.setInt(1,    employee.getId());      // ← typed positional binding
+    ps.setString(2, employee.getName());
+    ps.setString(3, employee.getEmail());
+    ps.setDouble(6, employee.getSalary());
+    ps.setDate(8,   Date.valueOf(employee.getJoiningDate()));   // java.time → java.sql
+
+    ps.executeUpdate();   // returns rows affected
+}
+
+// UPDATE — check rows affected to detect "not found"
+int rows = ps.executeUpdate();
+if (rows == 0) throw new EmployeeNotFoundException(id);
+
+// DELETE — same pattern
+ps.setInt(1, id);
+int deleted = ps.executeUpdate();
+```
+
+**Key benefits of `PreparedStatement` over `Statement`:**
+- Prevents SQL injection — parameters are never interpreted as SQL
+- DB can pre-compile the query plan — better performance on repeated calls
+- Typed setters (`setInt`, `setString`, `setDate`, …) make intent explicit
+
+---
+
+### 3 · ResultSet — `JdbcEmployeeDao` & `JdbcPayrollDao`
+
+`ps.executeQuery()` returns a `ResultSet`. The cursor starts **before the first row** and
+must be advanced with `rs.next()`.
+
+```java
+// Single row — if (rs.next())
+try (ResultSet rs = ps.executeQuery()) {
+    if (rs.next()) {                          // advances cursor; false = no row
+        int    id    = rs.getInt("id");       // read column by name
+        String name  = rs.getString("name");
+        double sal   = rs.getDouble("salary");
+        LocalDate d  = rs.getDate("joining_date").toLocalDate();  // java.sql → java.time
+    }
+}
+
+// Multiple rows — while (rs.next())
+List<Employee> results = new ArrayList<>();
+try (ResultSet rs = ps.executeQuery()) {
+    while (rs.next()) {                       // iterate until no more rows
+        results.add(mapRow(rs));
+    }
+}
+```
+
+**`java.time` ↔ `java.sql` type conversions:**
+
+| Java type      | JDBC write                           | JDBC read                                  |
+|----------------|--------------------------------------|--------------------------------------------|
+| `LocalDate`    | `Date.valueOf(localDate)`            | `rs.getDate("col").toLocalDate()`          |
+| `LocalDateTime`| `Timestamp.valueOf(localDateTime)`   | `rs.getTimestamp("col").toLocalDateTime()` |
+
+---
+
+### 4 · Transactions — `PayrollTransactionService`
+
+A **transaction** groups multiple SQL statements so they all succeed or all fail atomically.
+`PayrollTransactionService` wraps a complete payroll batch in a single transaction.
+
+```java
+// JDBC transaction recipe
+try (Connection con = dsf.getTransactionalConnection()) {  // autoCommit=false → start txn
+    try {
+        for (Employee emp : employees) {
+            PayrollRecord record = payrollService.processPayroll(recordId++, emp, month);
+            payrollDao.save(con, record);  // ← uses shared connection (same transaction)
+        }
+        con.commit();    // ← all INSERTs become permanent atomically
+
+    } catch (Exception e) {
+        con.rollback();  // ← all INSERTs are discarded — as if they never happened
+        throw ...;
+    }
+}
+```
+
+| Scenario                              | Result                                          |
+|---------------------------------------|-------------------------------------------------|
+| All employees succeed                 | `commit()` — every record persisted             |
+| Any calculation or DB error mid-batch | `rollback()` — zero records persisted           |
+
+**Contrast with `PayrollServiceImpl.processAll()`** — that method is *fault-tolerant*
+(skip-on-error, persists partial results). `PayrollTransactionService` is *all-or-nothing*.
+
+The connection-sharing pattern is key: `JdbcPayrollDao.save(Connection, record)` accepts
+a caller-supplied connection so multiple saves can be enlisted in **the same transaction**
+without the DAO needing to know about transaction scope.
+
+```java
+// Standalone usage (JdbcApplicationFactory wires this for you)
+PayrollTransactionService txService = new PayrollTransactionService(
+        dsf, payrollService, payrollDao);
+
+// Atomic batch — commit or rollback together
+List<PayrollRecord> records = txService.processAndSaveAll(employees, LocalDate.now());
+
+// Single record — still wrapped in its own transaction
+PayrollRecord record = txService.processAndSave(1, alice, LocalDate.now());
+```
+
+---
+
+### ★ Abstract Factory — `ApplicationFactory` / `InMemoryApplicationFactory` / `JdbcApplicationFactory`
 
 **Problem:** `App.java` manually instantiated every repository, service, and controller with
 `new` — knowledge of the entire object graph was hardcoded in the entry point.
@@ -229,21 +342,21 @@ PayrollController  payCtrl = factory.createPayrollController();
 changing the factory:
 
 ```java
-// Drop-in replacement — no other code changes
-ApplicationFactory factory = new DatabaseApplicationFactory();
+// In-memory stack (default — no DB required)
+ApplicationFactory factory = new InMemoryApplicationFactory();
+
+// JDBC stack — full SQL persistence, same controller/service API
+ApplicationFactory factory = new JdbcApplicationFactory(
+        "jdbc:h2:mem:hrdb;DB_CLOSE_DELAY=-1", "sa", "");
 ```
 
-`InMemoryApplicationFactory` caches created instances so that all controllers and services
-share the **same** repository instance within one factory context.
+`JdbcApplicationFactory` calls `DataSourceFactory.initSchema()` in its constructor, so
+tables are created automatically the first time it is instantiated.
 
-| Method                         | Returns                  | Notes                                   |
-|--------------------------------|--------------------------|-----------------------------------------|
-| `createEmployeeRepository()`   | `EmployeeRepository`     | Cached — same instance per factory      |
-| `createEmployeeService()`      | `EmployeeService`        | Cached — wired to the shared repository |
-| `createValidationService()`    | `ValidationService`      | Cached                                  |
-| `createPayrollService()`       | `PayrollService`         | Cached — uses singleton registry        |
-| `createEmployeeController()`   | `EmployeeController`     | New instance each call                  |
-| `createPayrollController()`    | `PayrollController`      | New instance each call                  |
+| Factory                      | Repository                   | Persistence       |
+|------------------------------|------------------------------|-------------------|
+| `InMemoryApplicationFactory` | `InMemoryEmployeeRepository` | JVM heap only     |
+| `JdbcApplicationFactory`     | `JdbcEmployeeDao`            | SQL database (JDBC)|
 
 ---
 
@@ -545,7 +658,7 @@ Default registration:
 ```java
 // Register on the singleton — available app-wide immediately
 PayrollStrategyRegistry.getInstance()
-        .register(MyNewEmployeeType.class, new MyNewEmployeePayrollStrategy());
+        .register(MyNewEmployeeType.class, new MyNewPayrollStrategy());
 ```
 
 ---
