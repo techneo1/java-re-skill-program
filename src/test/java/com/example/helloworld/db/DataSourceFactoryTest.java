@@ -74,6 +74,16 @@ class DataSourceFactoryTest {
     }
 
     @Test
+    @DisplayName("initSchema() creates the departments table")
+    void initSchema_createsDepartmentsTable() throws SQLException {
+        try (Connection con = dsf.getConnection();
+             var ps = con.prepareStatement("SELECT COUNT(*) FROM departments");
+             var rs = ps.executeQuery()) {
+            assertTrue(rs.next());   // table exists → query succeeds
+        }
+    }
+
+    @Test
     @DisplayName("initSchema() creates the employees table")
     void initSchema_createsEmployeesTable() throws SQLException {
         try (Connection con = dsf.getConnection();
@@ -115,4 +125,3 @@ class DataSourceFactoryTest {
         assertEquals(URL, dsf.getUrl());
     }
 }
-

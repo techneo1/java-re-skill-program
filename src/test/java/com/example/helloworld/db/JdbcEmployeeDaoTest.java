@@ -61,10 +61,14 @@ class JdbcEmployeeDaoTest {
         dsf = new DataSourceFactory(URL, USER, PASS);
         dsf.initSchema();
         dao = new JdbcEmployeeDao(dsf);
-        // Truncate for test isolation
+        // Truncate in FK-safe order for test isolation
         try (var con = dsf.getConnection(); var stmt = con.createStatement()) {
             stmt.execute("DELETE FROM payroll_records");
             stmt.execute("DELETE FROM employees");
+            stmt.execute("DELETE FROM departments");
+            // seed departments referenced by fixtures (dept 10, dept 20)
+            stmt.execute("INSERT INTO departments (id, name, location) VALUES (10, 'Engineering', 'Bangalore')");
+            stmt.execute("INSERT INTO departments (id, name, location) VALUES (20, 'Consulting', 'Mumbai')");
         }
     }
 
@@ -286,4 +290,3 @@ class JdbcEmployeeDaoTest {
         assertThrows(NullPointerException.class, () -> dao.add(null));
     }
 }
-

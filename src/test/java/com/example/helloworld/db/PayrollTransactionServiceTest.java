@@ -62,10 +62,13 @@ class PayrollTransactionServiceTest {
         empDao     = new JdbcEmployeeDao(dsf);
         payrollDao = new JdbcPayrollDao(dsf);
 
-        // wipe tables for test isolation
+        // wipe tables in FK-safe order for test isolation
         try (var con = dsf.getConnection(); var stmt = con.createStatement()) {
             stmt.execute("DELETE FROM payroll_records");
             stmt.execute("DELETE FROM employees");
+            stmt.execute("DELETE FROM departments");
+            // seed department referenced by alice and bob (dept 10)
+            stmt.execute("INSERT INTO departments (id, name, location) VALUES (10, 'Engineering', 'Bangalore')");
         }
 
         empDao.add(alice());

@@ -79,6 +79,15 @@ public class DataSourceFactory {
         try (Connection con = getConnection();
              var stmt = con.createStatement()) {
 
+            // departments must be created first — employees references it via FK
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS departments (
+                    id       INT          PRIMARY KEY,
+                    name     VARCHAR(100) NOT NULL UNIQUE,
+                    location VARCHAR(150) NOT NULL
+                )
+            """);
+
             stmt.execute("""
                 CREATE TABLE IF NOT EXISTS employees (
                     id               INT          PRIMARY KEY,
@@ -91,7 +100,8 @@ public class DataSourceFactory {
                     joining_date     DATE         NOT NULL,
                     employee_type    VARCHAR(20)  NOT NULL,
                     gratuity_eligible BOOLEAN     DEFAULT FALSE,
-                    contract_end_date DATE        DEFAULT NULL
+                    contract_end_date DATE        DEFAULT NULL,
+                    FOREIGN KEY (department_id) REFERENCES departments(id)
                 )
             """);
 
@@ -114,4 +124,3 @@ public class DataSourceFactory {
 
     public String getUrl() { return url; }
 }
-

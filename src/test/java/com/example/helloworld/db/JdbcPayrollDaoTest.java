@@ -62,6 +62,9 @@ class JdbcPayrollDaoTest {
         try (var con = dsf.getConnection(); var stmt = con.createStatement()) {
             stmt.execute("DELETE FROM payroll_records");
             stmt.execute("DELETE FROM employees");
+            stmt.execute("DELETE FROM departments");
+            // seed department referenced by alice (dept 10)
+            stmt.execute("INSERT INTO departments (id, name, location) VALUES (10, 'Engineering', 'Bangalore')");
         }
         // insert alice so FK constraint is satisfied
         new JdbcEmployeeDao(dsf).add(alice());

@@ -169,4 +169,3 @@ class SalaryAnalyticsServiceImplGroupByRoleTest {
         assertEquals(95_000, top.get(0).salary(), 0.01);
     }
 }
-
