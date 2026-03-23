@@ -7,7 +7,7 @@ including **sealed class hierarchies**, **records**, **encapsulation**, **abstra
 **inheritance**, organised into five distinct layers following the
 **Controller → Service → Repository** architecture.
 
-It also applies all five **Creational Design Patterns** (GoF) wherever object construction
+It also applies four **Creational Design Patterns** (GoF) wherever object construction
 complexity justifies them:
 
 | Pattern              | Applied To                                      | Benefit                                                       |
@@ -45,11 +45,12 @@ App
  │
  ├── [JDBC Layer] db/
  │        ├── DataSourceFactory              ← Connection management
+ │        ├── JdbcDepartmentDao              ← PreparedStatement + ResultSet (departments table)
  │        ├── JdbcEmployeeDao                ← PreparedStatement + ResultSet (employees table)
  │        ├── JdbcPayrollDao                 ← PreparedStatement + ResultSet (payroll_records table)
  │        └── PayrollTransactionService      ← commit / rollback across multiple DAOs
  │
- ���── [Factory Method] EmployeeFactory
+ └── [Factory Method] EmployeeFactory
           ├── createPermanentEmployee(...)  ──►  [Builder] PermanentEmployee.builder().build()
           └── createContractEmployee(...)   ──►  [Builder] ContractEmployee.builder().build()
 ```
@@ -75,9 +76,10 @@ src/main/java/com/example/helloworld/
 │   └── PayrollController.java                      — Handles payroll requests; catches all exceptions
 ├── db/                                             — ★ JDBC Layer
 │   ├── DataSourceFactory.java                      — Connection creation, schema DDL bootstrap
-│   ├── JdbcEmployeeDao.java                        — PreparedStatement + ResultSet: employees table
-│   ├── JdbcPayrollDao.java                         — PreparedStatement + ResultSet: payroll_records table
-│   └── PayrollTransactionService.java              — commit / rollback across JdbcPayrollDao + PayrollService
+│   ├── JdbcDepartmentDao                          — PreparedStatement + ResultSet: departments table
+│   ├── JdbcEmployeeDao                        — PreparedStatement + ResultSet: employees table
+│   ├── JdbcPayrollDao                         — PreparedStatement + ResultSet: payroll_records table
+│   └── PayrollTransactionService              — commit / rollback across JdbcPayrollDao + PayrollService
 ├── domain/
 │   ├── EmployeeStatus.java                         — Enum: ACTIVE / INACTIVE
 │   ├── Employee.java                               — Sealed abstract base class
@@ -93,7 +95,8 @@ src/main/java/com/example/helloworld/
 │       ├── PermanentEmployeePayrollStrategy.java   — Impl: 20% tax for permanent employees
 │       └── ContractEmployeePayrollStrategy.java    — Impl: 10% tax, rejects expired contracts
 ├── repository/
-│   ├── EmployeeRepository.java                     — Interface: repository contract
+│   ├── EmployeeRepository.java                     — Interface: employee repository contract
+│   ├── DepartmentRepository.java                   — Interface: department repository contract
 │   ├── EmployeeKey.java                            — Custom HashMap key (id + email)
 │   ├── DepartmentKey.java                          — Record-based HashMap key
 │   └── inmemory/
@@ -110,13 +113,14 @@ src/main/java/com/example/helloworld/
 │   ├── SalaryAnalyticsService.java                 — ★ Interface: 5 salary analytics operations
 │   └── SalaryAnalyticsServiceImpl.java             — ★ Stream pipeline + switch expr implementation
 └── exception/
-    ├── EmployeeException.java                      — Base checked exception
+    ├── EmployeeException.java                      — Base checked exception (extends Exception)
     ├── DuplicateEmployeeException.java
     ├── DuplicateEmailException.java
     ├── EmployeeNotFoundException.java
     ├── InvalidEmployeeDataException.java
     ├── PayrollException.java                       — Payroll calculation failure
-    └── ValidationException.java                   — Business rule violation
+    ├── ValidationException.java                   — Business rule violation
+    └── DepartmentNotFoundException.java            — Department lookup failure (extends Exception)
 
 src/test/java/com/example/helloworld/
 ├── controller/
@@ -124,6 +128,7 @@ src/test/java/com/example/helloworld/
 │   └── PayrollControllerTest.java
 ├── db/                                             — ★ JDBC integration tests (H2 in-memory)
 │   ├── DataSourceFactoryTest.java                  — Connection, autoCommit, schema DDL
+│   ├── JdbcDepartmentDaoTest.java                  — CRUD + queries on departments table
 │   ├── JdbcEmployeeDaoTest.java                    — PreparedStatement / ResultSet, all CRUD + queries
 │   ├── JdbcPayrollDaoTest.java                     — save, find, delete, rollback visibility
 │   └── PayrollTransactionServiceTest.java          — commit batch, rollback on failure
@@ -135,10 +140,13 @@ src/test/java/com/example/helloworld/
 └── service/
     ├── EmployeeServiceImplTest.java
     ├── EmployeeValidationServiceTest.java
+    ├── EmployeeValidationServiceEnhancedTest.java  — Extended edge-case validation tests
     ├── PayrollServiceImplTest.java
     ├── PayrollStrategyRegistryTest.java
     ├── SalaryAnalyticsServiceImplTest.java         — ★ All 5 analytics: happy paths + edge cases
-    └── SalaryAnalyticsServiceImplGroupByRoleTest.java — ★ Mixed types, boundary values, tie-breaking
+    ├── SalaryAnalyticsServiceImplGroupByRoleTest.java  — ★ Mixed types, boundary values, tie-breaking
+    ├── SalaryAnalyticsServiceImplParameterizedTest.java — ★ Parameterized stream pipeline tests
+    └── SalaryAnalyticsServiceImplStreamEdgeCaseTest.java — ★ Stream edge cases (empty, single, ties)
 ```
 
 ---
@@ -200,10 +208,17 @@ in-memory database in tests and a swappable `DataSourceFactory` in production.
 
 ### Database Schema
 
-Two tables are created automatically by `DataSourceFactory.initSchema()` (DDL uses
-`CREATE TABLE IF NOT EXISTS` — safe to call repeatedly):
+Three tables are created automatically by `DataSourceFactory.initSchema()` (DDL uses
+`CREATE TABLE IF NOT EXISTS` — safe to call repeatedly). The `departments` table is
+created first because `employees` holds a foreign key reference to it:
 
 ```sql
+departments (
+    id       INT          PRIMARY KEY,
+    name     VARCHAR(100) NOT NULL UNIQUE,
+    location VARCHAR(150) NOT NULL
+)
+
 employees (
     id                INT          PRIMARY KEY,
     name              VARCHAR(100) NOT NULL,
@@ -215,7 +230,8 @@ employees (
     joining_date      DATE         NOT NULL,
     employee_type     VARCHAR(20)  NOT NULL,   -- 'PERMANENT' | 'CONTRACT'
     gratuity_eligible BOOLEAN      DEFAULT FALSE,
-    contract_end_date DATE         DEFAULT NULL
+    contract_end_date DATE         DEFAULT NULL,
+    FOREIGN KEY (department_id) REFERENCES departments(id)
 )
 
 payroll_records (
@@ -240,7 +256,7 @@ for the whole `db` layer.
 DataSourceFactory dsf = new DataSourceFactory(
         "jdbc:h2:mem:hrdb;DB_CLOSE_DELAY=-1", "sa", "");
 
-dsf.initSchema();                        // creates tables (IF NOT EXISTS)
+dsf.initSchema();                        // creates all three tables (IF NOT EXISTS)
 
 // Plain connection — autoCommit=true (each statement auto-committed)
 try (Connection con = dsf.getConnection()) {
@@ -262,7 +278,7 @@ try (Connection con = dsf.getTransactionalConnection()) {
 
 ---
 
-### 2 · PreparedStatement — `JdbcEmployeeDao` & `JdbcPayrollDao`
+### 2 · PreparedStatement — `JdbcDepartmentDao`, `JdbcEmployeeDao` & `JdbcPayrollDao`
 
 Every DML statement and every parameterised query uses a `PreparedStatement`.
 **`Statement` is never used for user-supplied data** (only for schema DDL).
@@ -298,7 +314,7 @@ int deleted = ps.executeUpdate();
 
 ---
 
-### 3 · ResultSet — `JdbcEmployeeDao` & `JdbcPayrollDao`
+### 3 · ResultSet — `JdbcDepartmentDao`, `JdbcEmployeeDao` & `JdbcPayrollDao`
 
 `ps.executeQuery()` returns a `ResultSet`. The cursor starts **before the first row** and
 must be advanced with `rs.next()`.
@@ -488,7 +504,7 @@ to only `PermanentEmployee` and `ContractEmployee`.
 | `gratuityEligible` | `boolean` | Whether the employee qualifies for gratuity  |
 
 - `getEmployeeType()` returns `"PermanentEmployee"`.
-- **Builder:** `PermanentEmployee.builder()` — see [Builder pattern](#-builder----permanentemployee--contractemployee) above.
+- **Builder:** `PermanentEmployee.builder()` — see [Builder pattern](#️-creational-design-patterns) above.
 
 ---
 
@@ -500,7 +516,7 @@ to only `PermanentEmployee` and `ContractEmployee`.
 
 - `getEmployeeType()` returns `"ContractEmployee"`.
 - `isExpired()` — returns `true` if the contract has passed today's date.
-- **Builder:** `ContractEmployee.builder()` — see [Builder pattern](#-builder----permanentemployee--contractemployee) above.
+- **Builder:** `ContractEmployee.builder()` — see [Builder pattern](#️-creational-design-patterns) above.
 
 ---
 
@@ -569,6 +585,27 @@ Defines the full data-access contract — all CRUD operations, queries, and aggr
 ```
 EmployeeRepository                (interface — repository/)
     └── InMemoryEmployeeRepository    (implementation — repository/inmemory/)
+    └── JdbcEmployeeDao               (implementation — db/)
+```
+
+### `DepartmentRepository` (Interface)
+
+Defines the data-access contract for `Department` persistence.
+
+| Method                    | Description                                                          |
+|---------------------------|----------------------------------------------------------------------|
+| `add(Department)`         | Inserts a new department; throws `IllegalArgumentException` if id already exists |
+| `update(Department)`      | Updates name and location; throws `DepartmentNotFoundException` if not found |
+| `remove(int id)`          | Deletes by id; throws `DepartmentNotFoundException` if not found     |
+| `findById(int)`           | Returns `Optional<Department>`                                       |
+| `findByName(String)`      | Case-insensitive exact match; returns `Optional<Department>`         |
+| `findAll()`               | Returns all departments ordered by id                                |
+| `findByLocation(String)`  | Case-insensitive match on location; returns list ordered by id       |
+| `count()`                 | Total number of departments                                          |
+
+```
+DepartmentRepository              (interface — repository/)
+    └── JdbcDepartmentDao             (implementation — db/)
 ```
 
 ### `EmployeeKey` (Custom HashMap Key)
@@ -722,25 +759,27 @@ SalaryAnalyticsService (interface)
     └── SalaryAnalyticsServiceImpl   — Stream pipelines + switch expressions
 ```
 
-| Method                        | Stream API used                                   | Returns                                       |
-|-------------------------------|---------------------------------------------------|-----------------------------------------------|
-| `salaryByDepartment()`        | `groupingBy` + `summarizingDouble`                | `Map<Integer, DepartmentSalaryReport>` sorted |
-| `topNBySalary(n)`             | `sorted` + `limit` + `map`                        | `List<EmployeeSummaryDTO>` descending         |
-| `top5BySalary()`              | default — delegates to `topNBySalary(5)`          | `List<EmployeeSummaryDTO>`                    |
-| `averageSalaryByRole()`       | `groupingBy` + `averagingDouble`                  | `Map<String, Double>` sorted by role name     |
-| `partitionByStatus()`         | `partitioningBy` + `mapping`                      | `Map<Boolean, List<EmployeeSummaryDTO>>`      |
-| `averageSalaryByEmployeeType()`| `groupingBy(switch expr)` + `averagingDouble`    | `Map<String, Double>` sorted by type name     |
+| Method                         | Stream API used                                   | Returns                                       |
+|--------------------------------|---------------------------------------------------|-----------------------------------------------|
+| `salaryByDepartment()`         | `groupingBy` + `summarizingDouble`                | `Map<Integer, DepartmentSalaryReport>` sorted |
+| `topNBySalary(n)`              | `sorted` + `limit` + `map`                        | `List<EmployeeSummaryDTO>` descending         |
+| `top5BySalary()`               | default — delegates to `topNBySalary(5)`          | `List<EmployeeSummaryDTO>`                    |
+| `averageSalaryByRole()`        | `groupingBy` + `averagingDouble`                  | `Map<String, Double>` sorted by role name     |
+| `partitionByStatus()`          | `partitioningBy` + `mapping`                      | `Map<Boolean, List<EmployeeSummaryDTO>>`      |
+| `averageSalaryByEmployeeType()`| `groupingBy(switch expr)` + `averagingDouble`     | `Map<String, Double>` sorted by type name     |
 
 ---
 
 ## Exception Layer
 
-All exceptions extend `EmployeeException` (checked), allowing callers to catch either
+### `EmployeeException` hierarchy (checked — extends `Exception`)
+
+All employee-domain exceptions extend `EmployeeException`, allowing callers to catch either
 the broad base type or a specific subtype.
 The **Controller layer** catches all of these — they never propagate to `App.java`.
 
 ```
-EmployeeException  (base)
+EmployeeException  (base — extends Exception)
     ├── DuplicateEmployeeException   — id already exists on add
     ├── DuplicateEmailException      — email already taken on add/update
     ├── EmployeeNotFoundException    — id/email not found on update/remove/find
@@ -749,12 +788,59 @@ EmployeeException  (base)
     └── ValidationException          — employee fails a business validation rule
 ```
 
+### `DepartmentNotFoundException` (checked — extends `Exception` directly)
+
+Thrown when a department lookup by `id` or `name` finds no match. Stands alone outside
+the `EmployeeException` hierarchy because department operations are independent of employee
+operations.
+
+| Constructor                         | Message produced                          |
+|-------------------------------------|-------------------------------------------|
+| `DepartmentNotFoundException(int)`  | `"No department found with id: <id>"`     |
+| `DepartmentNotFoundException(String)`| `"No department found with name: <name>"`|
+
+`getSearchKey()` returns the id or name that was searched, as a `String`.
+
 ---
 
 ## OOP Concepts Applied
 
 ### 🏗️ Creational Design Patterns
-See the dedicated [Creational Design Patterns](#creational-design-patterns) section above.
+
+#### ★ Builder — `PermanentEmployee` & `ContractEmployee`
+
+Both concrete employee types expose a static `builder()` method. The builder enforces
+mandatory fields and provides a fluent API for optional ones.
+
+```java
+PermanentEmployee emp = PermanentEmployee.builder()
+        .id(1).name("Alice").email("alice@example.com")
+        .departmentId(10).role("Engineer").salary(90_000)
+        .status(EmployeeStatus.ACTIVE).joiningDate(LocalDate.of(2022, 1, 1))
+        .gratuityEligible(true)
+        .build();
+```
+
+#### ★ Factory Method — `EmployeeFactory`
+
+Named static methods centralise employee creation and hide which concrete subclass is
+being instantiated:
+
+```java
+Employee perm = EmployeeFactory.createPermanentEmployee(1, "Alice", ...);
+Employee cont = EmployeeFactory.createContractEmployee(2, "Bob",   ...);
+```
+
+#### ★ Singleton — `PayrollStrategyRegistry`
+
+`PayrollStrategyRegistry.getInstance()` returns the single shared instance. Strategies are
+registered once at startup and resolved by any component that holds a reference to the
+registry.
+
+#### ★ Abstract Factory — `ApplicationFactory`
+
+`InMemoryApplicationFactory` and `JdbcApplicationFactory` each wire a complete, consistent
+object graph. Switching stacks is a one-line change at the entry point.
 
 ### 🏛️ Layered Architecture (Controller → Service → Repository)
 Each layer has a **single responsibility** and communicates only with the layer directly below it:
@@ -777,7 +863,7 @@ All fields in `Employee` are `private`. Only mutable fields (`salary`, `status`,
 ### 🎭 Abstraction
 - `EmployeeController` — *what* callers can request, hiding service/exception details
 - `EmployeeService` — *what* the business layer can do, not *how*
-- `EmployeeRepository` — *what* the data layer can do, not *how*
+- `EmployeeRepository` / `DepartmentRepository` — *what* the data layer can do, not *how*
 - `PayrollStrategy` — *what* payroll calculation looks like, not *how*
 - `PayrollStrategyResolver` — *how* a strategy is selected (separate responsibility from payroll orchestration)
 - `ValidationService` — *what* validation means, not *how*
@@ -842,17 +928,37 @@ while enforcing immutability.
 
 ## Build & Run
 
+### Prerequisites
+
+| Tool    | Version   |
+|---------|-----------|
+| Java    | 17+       |
+| Maven   | 3.x       |
+
+### Dependencies
+
+| Dependency                  | Version  | Scope  | Purpose                          |
+|-----------------------------|----------|--------|----------------------------------|
+| `junit-jupiter`             | 5.10.2   | test   | JUnit 5 test framework           |
+| `mockito-core`              | 5.11.0   | test   | Mocking framework                |
+| `mockito-junit-jupiter`     | 5.11.0   | test   | Mockito ↔ JUnit 5 integration    |
+| `h2`                        | 2.2.224  | test   | In-memory SQL database (JDBC tests) |
+
+### Commands
+
 ```bash
 # Compile  (--enable-preview required for pattern matching in switch on Java 17)
 mvn compile
 
-# Run tests
+# Run all tests
 mvn test
+
+# Run tests + generate JaCoCo coverage report → target/site/jacoco/index.html
+mvn test jacoco:report
 
 # Run main class
 mvn exec:java
 ```
 
-> Requires **Java 17+** and **Maven 3.x**.
-> `--enable-preview` is configured in `pom.xml` for both the compiler and Surefire plugins
-> to enable pattern matching in switch expressions on Java 17.
+> `--enable-preview` is configured in `pom.xml` for both the `maven-compiler-plugin` and
+> `maven-surefire-plugin` to enable pattern matching in switch expressions on Java 17.
